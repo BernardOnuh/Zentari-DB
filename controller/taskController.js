@@ -1,4 +1,3 @@
-// taskController.js
 const Task = require('../models/Task');
 const User = require('../models/User');
 
@@ -26,6 +25,22 @@ exports.getTasksForUser = async (req, res) => {
   }
 };
 
+// Get a specific task by ID
+exports.getTaskById = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const task = await Task.findById(taskId);
+
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    res.json(task);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Create a new task
 exports.createTask = async (req, res) => {
   try {
@@ -48,6 +63,56 @@ exports.createTask = async (req, res) => {
   }
 };
 
+// Update a task by ID
+exports.updateTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const updates = req.body;
+
+    const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true });
+
+    if (!updatedTask) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    res.json(updatedTask);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Delete a task by ID
+exports.deleteTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const deletedTask = await Task.findByIdAndDelete(taskId);
+
+    if (!deletedTask) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    res.json({ message: 'Task deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Create multiple tasks at once
+exports.createMultipleTasks = async (req, res) => {
+  try {
+    const tasks = req.body; // Expect an array of task objects
+    if (!Array.isArray(tasks)) {
+      return res.status(400).json({ message: 'Expected an array of tasks' });
+    }
+
+    const createdTasks = await Task.insertMany(tasks);
+    res.status(201).json(createdTasks);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// Get all completed tasks for a specific user
 exports.getCompletedTasks = async (req, res) => {
   try {
     const { userId } = req.params;

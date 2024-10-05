@@ -10,32 +10,34 @@ const TaskSchema = new mongoose.Schema({
     required: true
   },
   imageUrl: {
-    type: String
+    type: String // Optional: URL of an image related to the task
   },
-  points: {
+  power: {
     type: Number,
-    required: true
+    required: true // Task requires a certain power level to be completed
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: true // Whether the task is still available
   },
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now // Timestamp for when the task was created
   },
   expiresAt: {
-    type: Date
+    type: Date // Optional: Expiration date of the task
   },
   completionDelay: {
     type: Number,
     required: true,
-    default: 0
+    default: 0 // Delay before the task can be marked as completed
   },
-  link: { // New field to store the link to the task
+  link: {
     type: String,
-    required: true
+    required: true // Link associated with the task (could be an external resource)
   }
 });
 
-module.exports = mongoose.model('Task', TaskSchema);
+const Task = mongoose.model('Task', TaskSchema);
+
+module.exports = Task;

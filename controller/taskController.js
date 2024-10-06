@@ -150,7 +150,7 @@ exports.getCompletedTasks = async (req, res) => {
   }
 };
 
-xports.completeTask = async (req, res) => {
+exports.completeTask = async (req, res) => {
   try {
     const { telegramUserId, taskId } = req.params;
 

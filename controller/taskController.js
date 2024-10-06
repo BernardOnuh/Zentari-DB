@@ -1,129 +1,61 @@
-const Task = require('../models/Task');
-const User = require('../models/User');
+const express = require('express');
+const router = express.Router();
+const {
+  registerUser,
+  upgradeLevel,
+  handleTap,
+  monitorUserStatus
+} = require('../controller/userController');
 
-// Get all tasks for a specific user (excluding completed ones)
-exports.getTasksForUser = async (req, res) => {
-  try {
-    const { username } = req.params;
+const {
+  getTasksForUser,
+  getTaskById,
+  createTask,
+  updateTask,
+  deleteTask,
+  createMultipleTasks,
+  getCompletedTasks,
+  completeTask
+} = require('../controller/taskController');
 
-    // Find the user by username
-    const user = await User.findOne({ username });
+// USER ROUTES
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+// POST: Register a new user
+router.post('/register', registerUser);
 
-    // Find tasks that are active and not completed by the user
-    const tasks = await Task.find({
-      isActive: true,
-      _id: { $nin: user.tasksCompleted }, // Exclude tasks that are completed by the user
-    });
+// PUT: Upgrade speed, multitap, or energy limit level
+router.put('/upgrade', upgradeLevel);
 
-    res.json(tasks);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
+// PUT: Handle tapping (consume energy and increase power)
+router.put('/tap', handleTap);
 
-// Get a specific task by ID
-exports.getTaskById = async (req, res) => {
-  try {
-    const { taskId } = req.params;
-    const task = await Task.findById(taskId);
+// GET: Monitor user status by userId
+router.get('/status/:userId', monitorUserStatus);
 
-    if (!task) {
-      return res.status(404).json({ message: 'Task not found' });
-    }
+// TASK ROUTES
 
-    res.json(task);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
+// GET: Get all tasks for a specific user (excluding completed tasks)
+router.get('/tasks/:username', getTasksForUser);
 
-// Create a new task
-exports.createTask = async (req, res) => {
-  try {
-    const { topic, description, imageUrl, power, expiresAt, completionDelay, link } = req.body;
+// GET: Get a specific task by its ID
+router.get('/task/:taskId', getTaskById);
 
-    const newTask = new Task({
-      topic,
-      description,
-      imageUrl,
-      power,
-      expiresAt,
-      completionDelay,
-      link
-    });
+// POST: Create a new task
+router.post('/task', createTask);
 
-    await newTask.save();
-    res.status(201).json(newTask);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
+// PUT: Update a specific task by its ID
+router.put('/task/:taskId', updateTask);
 
-// Update a task by ID
-exports.updateTask = async (req, res) => {
-  try {
-    const { taskId } = req.params;
-    const updates = req.body;
+// DELETE: Delete a task by its ID
+router.delete('/task/:taskId', deleteTask);
 
-    const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true });
+// POST: Create multiple tasks
+router.post('/tasks', createMultipleTasks);
 
-    if (!updatedTask) {
-      return res.status(404).json({ message: 'Task not found' });
-    }
+// GET: Get all completed tasks for a specific user
+router.get('/tasks/completed/:userId', getCompletedTasks);
 
-    res.json(updatedTask);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
+// PUT: Mark a task as completed for a specific user
+router.put('/task/complete/:userId/:taskId', completeTask);
 
-// Delete a task by ID
-exports.deleteTask = async (req, res) => {
-  try {
-    const { taskId } = req.params;
-    const deletedTask = await Task.findByIdAndDelete(taskId);
-
-    if (!deletedTask) {
-      return res.status(404).json({ message: 'Task not found' });
-    }
-
-    res.json({ message: 'Task deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Create multiple tasks at once
-exports.createMultipleTasks = async (req, res) => {
-  try {
-    const tasks = req.body; // Expect an array of task objects
-    if (!Array.isArray(tasks)) {
-      return res.status(400).json({ message: 'Expected an array of tasks' });
-    }
-
-    const createdTasks = await Task.insertMany(tasks);
-    res.status(201).json(createdTasks);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
-
-// Get all completed tasks for a specific user
-exports.getCompletedTasks = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const user = await User.findById(userId).populate('tasksCompleted');
-    
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    res.json(user.tasksCompleted);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
+module.exports = router;

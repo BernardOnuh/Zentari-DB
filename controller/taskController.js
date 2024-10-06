@@ -1,7 +1,5 @@
 const Task = require('../models/Task');
 const User = require('../models/User');
-
-
 const mongoose = require('mongoose');
 
 // Get all tasks for a specific user (excluding completed ones)
@@ -133,7 +131,6 @@ exports.createMultipleTasks = async (req, res) => {
   }
 };
 
-// Get completed tasks for a user
 exports.getCompletedTasks = async (req, res) => {
   try {
     const { username } = req.params;

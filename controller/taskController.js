@@ -150,7 +150,6 @@ exports.getCompletedTasks = async (req, res) => {
   }
 };
 
-// Mark a task as completed for a specific user
 exports.completeTask = async (req, res) => {
   try {
     const { userId, taskId } = req.params;

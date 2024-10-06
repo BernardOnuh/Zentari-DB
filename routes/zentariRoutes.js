@@ -58,7 +58,7 @@ router.delete('/task/:taskId', deleteTask);
 router.post('/tasks', createMultipleTasks);
 
 // GET: Get all completed tasks for a specific user
-router.get('/tasks/completed/:userId', getCompletedTasks);
+router.get('/tasks/completed/:username', getCompletedTasks);
 
 // PUT: Mark a task as completed for a specific user
 router.put('/task/complete/:userId/:taskId', completeTask);

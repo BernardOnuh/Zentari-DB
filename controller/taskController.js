@@ -132,17 +132,12 @@ exports.createMultipleTasks = async (req, res) => {
   }
 };
 
-// Get all completed tasks for a specific user
 exports.getCompletedTasks = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { username } = req.params;
 
-    // Validate if userId is a valid ObjectId
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ message: 'Invalid user ID' });
-    }
-
-    const user = await User.findById(userId).populate('tasksCompleted');
+    // Find the user by username instead of ObjectId
+    const user = await User.findOne({ username }).populate('tasksCompleted');
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -153,6 +148,7 @@ exports.getCompletedTasks = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // Mark a task as completed for a specific user
 exports.completeTask = async (req, res) => {

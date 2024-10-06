@@ -1,5 +1,7 @@
 const Task = require('../models/Task');
 const User = require('../models/User');
+const CompletedTask = require('../models/CompletedTask');
+
 const mongoose = require('mongoose');
 
 // Get all tasks for a specific user (excluding completed ones)
@@ -155,31 +157,33 @@ exports.completeTask = async (req, res) => {
 
     // Validate if userId and taskId are valid ObjectIds
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(taskId)) {
-      return res.status(400).json({ success: false, message: 'Invalid user or task ID' });
+      return res.status(400).json({ message: 'Invalid user or task ID' });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    // Check if the task exists
-    const task = await Task.findById(taskId);
-    if (!task) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
+      return res.status(404).json({ message: 'User not found' });
     }
 
     // Check if the task is already completed
     if (user.tasksCompleted.includes(taskId)) {
-      return res.status(400).json({ success: false, message: 'Task already completed' });
+      return res.status(400).json({ message: 'Task already completed' });
     }
 
-    // Mark the task as completed
+    // Mark the task as completed in CompletedTask collection
+    const completedTask = new CompletedTask({
+      taskId,
+      userId,
+      completedAt: new Date(),
+    });
+    await completedTask.save();
+
+    // Optionally, update the user
     user.tasksCompleted.push(taskId);
     await user.save();
 
-    res.status(200).json({ success: true, message: 'Task marked as completed' });
+    res.status(200).json({ message: 'Task marked as completed' });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ message: error.message });
   }
 };

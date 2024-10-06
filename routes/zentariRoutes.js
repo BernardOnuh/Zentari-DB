@@ -14,7 +14,8 @@ const {
   updateTask,
   deleteTask,
   createMultipleTasks,
-  getCompletedTasks
+  getCompletedTasks,
+  completeTask
 } = require('../controller/taskController');
 
 // USER ROUTES
@@ -53,5 +54,8 @@ router.post('/tasks', createMultipleTasks);
 
 // GET: Get all completed tasks for a specific user
 router.get('/tasks/completed/:userId', getCompletedTasks);
+
+// PUT: Mark a task as completed for a specific user
+router.put('/task/complete/:userId/:taskId', completeTask);
 
 module.exports = router;

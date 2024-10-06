@@ -150,17 +150,19 @@ exports.getCompletedTasks = async (req, res) => {
   }
 };
 
+
 // Mark a task as completed for a specific user
 exports.completeTask = async (req, res) => {
   try {
-    const { userId, taskId } = req.params;
+    const { username, taskId } = req.params;
 
-    // Validate if userId and taskId are valid ObjectIds
-    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(taskId)) {
-      return res.status(400).json({ message: 'Invalid user or task ID' });
+    // Validate if taskId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
     }
 
-    const user = await User.findById(userId);
+    // Find the user by username
+    const user = await User.findOne({ username });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -173,7 +175,7 @@ exports.completeTask = async (req, res) => {
     // Mark the task as completed in CompletedTask collection
     const completedTask = new CompletedTask({
       taskId,
-      userId,
+      userId: user._id, // Use user._id to maintain the reference
       completedAt: new Date(),
     });
     await completedTask.save();

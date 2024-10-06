@@ -4,7 +4,8 @@ const {
   registerUser,
   upgradeLevel,
   handleTap,
-  monitorUserStatus
+  monitorUserStatus,
+  getAllUsers
 } = require('../controller/userController');
 
 const {
@@ -31,6 +32,10 @@ router.put('/tap', handleTap);
 
 // GET: Monitor user status by userId
 router.get('/status/:userId', monitorUserStatus);
+
+// GET: Fetch all users with their userId
+router.get('/users', getAllUsers);
+
 
 // TASK ROUTES
 

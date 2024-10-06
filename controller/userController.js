@@ -188,10 +188,19 @@ const monitorUserStatus = async (req, res) => {
   }
 };
 
+const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username userId'); // Retrieve only username and userId fields
+    res.status(200).json({ message: 'Users retrieved successfully', users });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
 
 module.exports = {
   registerUser,
   upgradeLevel,
   handleTap,
-  monitorUserStatus // Export the new function
+  monitorUserStatus,
+  getAllUsers // Export the new function
 };

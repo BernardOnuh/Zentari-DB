@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const mongoose = require('mongoose');
+const ObjectId = mongoose.Types.ObjectId;
 
 // POST: Register new user
 const registerUser = async (req, res) => {

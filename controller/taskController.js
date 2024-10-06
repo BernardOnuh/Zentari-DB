@@ -1,5 +1,7 @@
 const Task = require('../models/Task');
 const User = require('../models/User');
+const mongoose = require('mongoose');
+const ObjectId = mongoose.Types.ObjectId;
 
 // Get all tasks for a specific user (excluding completed ones)
 exports.getTasksForUser = async (req, res) => {
@@ -29,6 +31,12 @@ exports.getTasksForUser = async (req, res) => {
 exports.getTaskById = async (req, res) => {
   try {
     const { taskId } = req.params;
+
+    // Validate if taskId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+
     const task = await Task.findById(taskId);
 
     if (!task) {
@@ -67,6 +75,12 @@ exports.createTask = async (req, res) => {
 exports.updateTask = async (req, res) => {
   try {
     const { taskId } = req.params;
+
+    // Validate if taskId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+
     const updates = req.body;
 
     const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true });
@@ -85,6 +99,12 @@ exports.updateTask = async (req, res) => {
 exports.deleteTask = async (req, res) => {
   try {
     const { taskId } = req.params;
+
+    // Validate if taskId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+
     const deletedTask = await Task.findByIdAndDelete(taskId);
 
     if (!deletedTask) {
@@ -116,8 +136,14 @@ exports.createMultipleTasks = async (req, res) => {
 exports.getCompletedTasks = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    // Validate if userId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: 'Invalid user ID' });
+    }
+
     const user = await User.findById(userId).populate('tasksCompleted');
-    
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -133,7 +159,11 @@ exports.completeTask = async (req, res) => {
   try {
     const { userId, taskId } = req.params;
 
-    // Find the user by ID
+    // Validate if userId and taskId are valid ObjectIds
+    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ message: 'Invalid user or task ID' });
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -153,4 +183,3 @@ exports.completeTask = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-

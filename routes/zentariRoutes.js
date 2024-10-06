@@ -60,7 +60,6 @@ router.post('/tasks', createMultipleTasks);
 // GET: Get all completed tasks for a specific user
 router.get('/tasks/completed/:username', getCompletedTasks);
 
-// PUT: Mark a task as completed for a specific user
-router.put('/task/complete/:userId/:taskId', completeTask);
+router.post('/complete/:telegramUserId/:taskId', completeTask);
 
 module.exports = router;

@@ -1,6 +1,6 @@
 const Task = require('../models/Task');
 const User = require('../models/User');
-const CompletedTask = require('../models/CompletedTask');
+
 
 const mongoose = require('mongoose');
 
@@ -150,39 +150,46 @@ exports.getCompletedTasks = async (req, res) => {
   }
 };
 
-exports.completeTask = async (req, res) => {
+xports.completeTask = async (req, res) => {
   try {
-    const { userId, taskId } = req.params;
+    const { telegramUserId, taskId } = req.params;
 
-    // Validate if userId and taskId are valid ObjectIds
-    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(taskId)) {
-      return res.status(400).json({ message: 'Invalid user or task ID' });
+    // Validate taskId
+    if (!mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ success: false, message: 'Invalid task ID' });
     }
 
-    const user = await User.findById(userId);
+    // Find the user by telegramUserId
+    const user = await User.findOne({ userId: telegramUserId });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Check if the task is already completed
+    // Find the task
+    const task = await Task.findById(taskId);
+    if (!task) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+
+    // Check if the task is already completed by the user
     if (user.tasksCompleted.includes(taskId)) {
-      return res.status(400).json({ message: 'Task already completed' });
+      return res.status(400).json({ success: false, message: 'Task already completed by this user' });
     }
 
-    // Mark the task as completed in CompletedTask collection
-    const completedTask = new CompletedTask({
-      taskId,
-      userId,
-      completedAt: new Date(),
-    });
-    await completedTask.save();
-
-    // Optionally, update the user
+    // Add the task to the user's completed tasks
     user.tasksCompleted.push(taskId);
+
+    // Add the task's power to the user's power
+    user.power += task.power;
+
+    // Save the updated user
     await user.save();
 
-    res.status(200).json({ message: 'Task marked as completed' });
+    // Optionally, you might want to update the task itself (e.g., decrease available slots)
+    // This depends on your specific requirements
+
+    res.json({ success: true, message: 'Task completed successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };

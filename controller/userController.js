@@ -43,6 +43,32 @@ const registerUser = async (req, res) => {
   }
 };
 
+// GET: Retrieve referral details for the user
+const getReferralDetails = async (req, res) => {
+  const { userId } = req.params; // Assuming userId is passed as a URL parameter
+
+  try {
+    // Find the user by userId
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Count how many users this person has referred
+    const referredUsers = await User.find({ referral: user.username }).countDocuments();
+
+    // Return the referral details, including total referral points and number of referred users
+    res.status(200).json({
+      message: 'Referral details retrieved successfully',
+      totalReferralPoints: user.referralScore, // Assuming referral points are added to checkInPoints
+      referredUsersCount: referredUsers
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
 
 // PUT: Upgrade speed, multitap, or energy limit level
 const upgradeLevel = async (req, res) => {
@@ -298,5 +324,6 @@ module.exports = {
   monitorUserStatus,
   getAllUsers,
   performDailyCheckIn,
-  getCheckInStatus
+  getCheckInStatus,
+  getReferralDetails
 };

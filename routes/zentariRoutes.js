@@ -7,7 +7,8 @@ const {
   monitorUserStatus,
   getAllUsers,
   performDailyCheckIn, 
-  getCheckInStatus 
+  getCheckInStatus,
+  getReferralDetails
 } = require('../controller/userController');
 
 const {
@@ -43,6 +44,8 @@ router.post('/check-in', performDailyCheckIn);
 
 // GET route for retrieving check-in status
 router.get('/check-in/:userId', getCheckInStatus);
+
+router.get('/referral-details/:userId', getReferralDetails);
 
 
 // TASK ROUTES

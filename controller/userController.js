@@ -289,5 +289,7 @@ module.exports = {
   upgradeLevel,
   handleTap,
   monitorUserStatus,
-  getAllUsers // Export the new function
+  getAllUsers,
+  performDailyCheckIn,
+  getCheckInStatus
 };

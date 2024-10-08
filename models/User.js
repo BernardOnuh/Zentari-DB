@@ -47,6 +47,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  referralScore: {
+    type: Number,
+    default: 0  // Added this field to track referral score
+  },
   lastTapTime: {
     type: Date,
     default: Date.now

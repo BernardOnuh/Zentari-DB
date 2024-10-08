@@ -29,6 +29,12 @@ const registerUser = async (req, res) => {
       referral: referral ? inviter.username : null // Store inviter's username
     });
 
+    // If there's a valid referral, reward the inviter
+    if (inviter) {
+      inviter.referralScore += 2000; // Reward inviter with 2000 referral points
+      await inviter.save(); // Save the updated inviter details
+    }
+
     await newUser.save();
 
     res.status(201).json({ message: 'User registered successfully', user: newUser });
@@ -36,6 +42,7 @@ const registerUser = async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
 
 // PUT: Upgrade speed, multitap, or energy limit level
 const upgradeLevel = async (req, res) => {

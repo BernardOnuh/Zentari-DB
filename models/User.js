@@ -1,3 +1,4 @@
+// Update your User model (in models/User.js or similar)
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
@@ -20,10 +21,6 @@ const userSchema = new mongoose.Schema({
     default: 500
   },
   power: {
-    type: Number,
-    default: 0
-  },
-  checkInPoints: {
     type: Number,
     default: 0
   },
@@ -53,16 +50,8 @@ const userSchema = new mongoose.Schema({
   },
   tasksCompleted: [{
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Task'
-  }],
-  lastCheckIn: {
-    type: Date,
-    default: null
-  },
-  checkInStreak: {
-    type: Number,
-    default: 0
-  }
+    ref: 'Task' // Reference to the Task model
+  }]
 });
 
 const User = mongoose.model('User', userSchema);

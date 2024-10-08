@@ -5,9 +5,7 @@ const {
   upgradeLevel,
   handleTap,
   monitorUserStatus,
-  getAllUsers,
-  performDailyCheckIn, 
-  getCheckInStatus
+  getAllUsers
 } = require('../controller/userController');
 
 const {

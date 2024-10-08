@@ -196,100 +196,11 @@ const getAllUsers = async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 };
-const performDailyCheckIn = async (req, res) => {
-  const { userId } = req.body;
-
-  try {
-    const user = await User.findOne({ userId });
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const now = new Date();
-    const lastCheckIn = user.lastCheckIn ? new Date(user.lastCheckIn) : null;
-
-    // Check if it's a new day (in UTC)
-    if (!lastCheckIn || now.getUTCDate() !== lastCheckIn.getUTCDate() || now.getUTCMonth() !== lastCheckIn.getUTCMonth() || now.getUTCFullYear() !== lastCheckIn.getUTCFullYear()) {
-      // It's a new day, proceed with check-in
-      let reward;
-
-      if (!lastCheckIn || now - lastCheckIn > 24 * 60 * 60 * 1000) {
-        // If it's the first check-in or more than 24 hours have passed, reset streak
-        user.checkInStreak = 1;
-        reward = 1000; // Day 1 reward
-      } else {
-        // Increment streak
-        user.checkInStreak += 1;
-
-        if (user.checkInStreak % 7 === 0) {
-          // Every 7th day
-          if (user.checkInStreak === 7) {
-            reward = 25000; // Day 7
-          } else {
-            reward = Math.min(250000, 50000 + (user.checkInStreak / 7 - 2) * 50000); // Day 14+
-          }
-        } else {
-          reward = 5000; // Standard daily reward
-        }
-      }
-
-      user.lastCheckIn = now;
-      user.checkInPoints += reward;
-
-      await user.save();
-
-      res.status(200).json({
-        message: 'Daily check-in successful',
-        checkInPointsEarned: reward,
-        totalCheckInPoints: user.checkInPoints,
-        streak: user.checkInStreak
-      });
-    } else {
-      // User has already checked in today
-      res.status(400).json({ message: 'You have already checked in today' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
-  }
-};
-
-// GET: Retrieve check-in status
-const getCheckInStatus = async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    const user = await User.findOne({ userId });
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const now = new Date();
-    const lastCheckIn = user.lastCheckIn ? new Date(user.lastCheckIn) : null;
-    const canCheckInToday = !lastCheckIn || 
-      now.getUTCDate() !== lastCheckIn.getUTCDate() || 
-      now.getUTCMonth() !== lastCheckIn.getUTCMonth() || 
-      now.getUTCFullYear() !== lastCheckIn.getUTCFullYear();
-
-    res.status(200).json({
-      lastCheckIn: user.lastCheckIn,
-      checkInStreak: user.checkInStreak,
-      totalCheckInPoints: user.checkInPoints,
-      canCheckInToday: canCheckInToday
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
-  }
-};
-
 
 module.exports = {
   registerUser,
   upgradeLevel,
   handleTap,
   monitorUserStatus,
-  getAllUsers, 
-  performDailyCheckIn,
-  getCheckInStatus
+  getAllUsers // Export the new function
 };

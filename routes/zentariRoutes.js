@@ -38,11 +38,6 @@ router.get('/status/:userId', monitorUserStatus);
 // GET: Fetch all users with their userId
 router.get('/users', getAllUsers);
 
-// POST route for performing daily check-in
-router.post('/check-in', performDailyCheckIn);
-
-// GET route for retrieving check-in status
-router.get('/check-in/:userId', getCheckInStatus);
 
 // TASK ROUTES
 

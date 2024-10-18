@@ -251,7 +251,7 @@ const performDailyCheckIn = async (req, res) => {
 
       if (!lastCheckIn || now - lastCheckIn > 24 * 60 * 60 * 1000) {
         // If it's the first check-in or more than 24 hours have passed, reset streak
-        user.checkInStreak = 1;
+        user.checkInStreak = 0;
         reward = 1000; // Day 1 reward
       } else {
         // Increment streak
@@ -316,7 +316,7 @@ const getCheckInStatus = async (req, res) => {
     let todayCheckInValue;
     if (!canCheckInToday) {
       todayCheckInValue = 0; // Already checked in today
-    } else if (!lastCheckIn || now - lastCheckIn > 24 * 60 * 60 * 1000) {
+    } else if (!lastCheckIn || now - lastCheckIn > 48 * 60 * 60 * 1000) {
       todayCheckInValue = 1000; // First day or streak broken
     } else {
       const nextStreakDay = user.checkInStreak + 1;

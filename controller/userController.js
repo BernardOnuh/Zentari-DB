@@ -230,6 +230,7 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+
 const performDailyCheckIn = async (req, res) => {
   const { userId } = req.body;
 
@@ -261,7 +262,12 @@ const performDailyCheckIn = async (req, res) => {
           if (user.checkInStreak === 7) {
             reward = 25000; // Day 7
           } else {
-            reward = Math.min(250000, 50000 + (user.checkInStreak / 7 - 2) * 50000); // Day 14+
+            const weekNumber = Math.floor(user.checkInStreak / 7);
+            if (weekNumber <= 5) {
+              reward = 50000 * weekNumber; // Day 14, 21, 28, 35
+            } else {
+              reward = 250000; // Fixed at 250k from day 42 onwards
+            }
           }
         } else {
           reward = 5000; // Standard daily reward
@@ -288,7 +294,7 @@ const performDailyCheckIn = async (req, res) => {
   }
 };
 
-// GET: Retrieve check-in status
+
 const getCheckInStatus = async (req, res) => {
   const { userId } = req.params;
 
@@ -306,11 +312,37 @@ const getCheckInStatus = async (req, res) => {
       now.getUTCMonth() !== lastCheckIn.getUTCMonth() || 
       now.getUTCFullYear() !== lastCheckIn.getUTCFullYear();
 
+    // Calculate the check-in value for today
+    let todayCheckInValue;
+    if (!canCheckInToday) {
+      todayCheckInValue = 0; // Already checked in today
+    } else if (!lastCheckIn || now - lastCheckIn > 24 * 60 * 60 * 1000) {
+      todayCheckInValue = 1000; // First day or streak broken
+    } else {
+      const nextStreakDay = user.checkInStreak + 1;
+      if (nextStreakDay % 7 === 0) {
+        // Every 7th day
+        if (nextStreakDay === 7) {
+          todayCheckInValue = 25000;
+        } else {
+          const weekNumber = Math.floor(nextStreakDay / 7);
+          if (weekNumber <= 5) {
+            todayCheckInValue = 50000 * weekNumber;
+          } else {
+            todayCheckInValue = 250000;
+          }
+        }
+      } else {
+        todayCheckInValue = 5000; // Standard daily reward
+      }
+    }
+
     res.status(200).json({
       lastCheckIn: user.lastCheckIn,
       checkInStreak: user.checkInStreak,
       totalCheckInPoints: user.checkInPoints,
-      canCheckInToday: canCheckInToday
+      canCheckInToday: canCheckInToday,
+      todayCheckInValue: todayCheckInValue
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });

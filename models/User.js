@@ -19,6 +19,7 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 500
   },
+  // Separate point systems
   power: {
     type: Number,
     default: 0
@@ -27,6 +28,11 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  referralPoints: {
+    type: Number,
+    default: 0
+  },
+  // Other properties
   multiplier: {
     type: Number,
     default: 1
@@ -46,10 +52,6 @@ const userSchema = new mongoose.Schema({
   referral: {
     type: String,
     default: null
-  },
-  referralScore: {
-    type: Number,
-    default: 0  // Added this field to track referral score
   },
   lastTapTime: {
     type: Date,

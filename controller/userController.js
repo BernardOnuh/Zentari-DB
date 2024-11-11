@@ -26,13 +26,17 @@ const registerUser = async (req, res) => {
     const newUser = new User({
       username,
       userId,
-      referral: referral ? inviter.username : null // Store inviter's username
+      referral: referral ? inviter.username : null,
+      // Initialize separate point systems
+      power: 0,
+      checkInPoints: 0,
+      referralPoints: 0
     });
 
     // If there's a valid referral, reward the inviter
     if (inviter) {
-      inviter.referralScore += 2000; // Reward inviter with 2000 referral points
-      await inviter.save(); // Save the updated inviter details
+      inviter.referralPoints += 2000; // Add to separate referral points
+      await inviter.save();
     }
 
     await newUser.save();
@@ -42,33 +46,6 @@ const registerUser = async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 };
-
-// GET: Retrieve referral details for the user
-const getReferralDetails = async (req, res) => {
-  const { userId } = req.params; // Assuming userId is passed as a URL parameter
-
-  try {
-    // Find the user by userId
-    const user = await User.findOne({ userId });
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Count how many users this person has referred
-    const referredUsers = await User.find({ referral: user.username }).countDocuments();
-
-    // Return the referral details, including total referral points and number of referred users
-    res.status(200).json({
-      message: 'Referral details retrieved successfully',
-      totalReferralPoints: user.referralScore, // Assuming referral points are added to checkInPoints
-      referredUsersCount: referredUsers
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
-  }
-};
-
 
 // PUT: Upgrade speed, multitap, or energy limit level
 const upgradeLevel = async (req, res) => {
@@ -91,7 +68,7 @@ const upgradeLevel = async (req, res) => {
         break;
       case 'energyLimit':
         user.energyLimitLevel += 1;
-        user.maxEnergy = 500 * user.energyLimitLevel; // Increase max energy
+        user.maxEnergy = 500 * user.energyLimitLevel;
         break;
       default:
         return res.status(400).json({ message: 'Invalid upgrade type' });
@@ -104,29 +81,21 @@ const upgradeLevel = async (req, res) => {
   }
 };
 
-// Utility to calculate how much energy should regenerate based on time passed and speed level
+// Utility to calculate regenerated energy
 const calculateRegeneratedEnergy = (user) => {
   const currentTime = Date.now();
-
-  // Energy regeneration is tied to speedLevel (e.g., speedLevel 1 = 1 energy per second)
-  const regenRate = 1000 / user.speedLevel; // Regeneration interval in milliseconds
-
-  // Calculate time difference in milliseconds since the last action
+  const regenRate = 1000 / user.speedLevel;
   const timeDiff = currentTime - user.lastTapTime;
-
-  // Calculate how much energy should regenerate based on the time difference and speed level
   const energyToRegenerate = Math.floor(timeDiff / regenRate);
-
-  // Update energy but don't exceed maxEnergy
   const newEnergy = Math.min(user.energy + energyToRegenerate, user.maxEnergy);
 
   return {
     newEnergy,
-    lastTapTime: currentTime // Update last tap time to the current time
+    lastTapTime: currentTime
   };
 };
 
-// PUT: Handle tapping (consume energy and increase power)
+// PUT: Handle tapping
 const handleTap = async (req, res) => {
   const { userId } = req.body;
 
@@ -137,18 +106,14 @@ const handleTap = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Regenerate energy based on the time elapsed since the last tap
     const { newEnergy, lastTapTime } = calculateRegeneratedEnergy(user);
-    user.energy = newEnergy; // Update energy with the regenerated value
-    user.lastTapTime = lastTapTime; // Update last tap time to now
+    user.energy = newEnergy;
+    user.lastTapTime = lastTapTime;
 
-    // Check if the user has enough energy to tap
     if (user.energy > 0) {
-      // Decrease energy by 1 and increase power
       user.energy -= 1;
-      user.power += user.multiplier;
+      user.power += user.multiplier; // Only affects power, not other point systems
 
-      // Save the updated user data
       await user.save();
       res.status(200).json({ message: 'Tap successful', user });
     } else {
@@ -159,28 +124,9 @@ const handleTap = async (req, res) => {
   }
 };
 
-// This function can be called periodically, for example every second
-const autoRechargeEnergy = async () => {
-  const users = await User.find(); // Fetch all users or implement logic to fetch only active users
-
-  users.forEach(async (user) => {
-    const { newEnergy, lastTapTime } = calculateRegeneratedEnergy(user);
-    user.energy = newEnergy;
-    user.lastTapTime = lastTapTime; // Update last tap time to now
-
-    // Save changes if the user's energy was updated
-    if (user.energy !== newEnergy) {
-      await user.save();
-    }
-  });
-};
-
-// Example usage: Set an interval to call autoRechargeEnergy every second
-setInterval(autoRechargeEnergy, 1000);
-
 // GET: Monitor user status
 const monitorUserStatus = async (req, res) => {
-  const { userId } = req.params; // Assuming userId is passed as a URL parameter
+  const { userId } = req.params;
 
   try {
     const user = await User.findOne({ userId });
@@ -189,33 +135,54 @@ const monitorUserStatus = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Regenerate energy based on time elapsed since the last tap
     const { newEnergy, lastTapTime } = calculateRegeneratedEnergy(user);
-    
-    // Update user object with regenerated energy
     user.energy = newEnergy;
     user.lastTapTime = lastTapTime;
 
-    // Save updated energy to database (only if there's a change)
     if (user.energy !== newEnergy) {
       await user.save();
     }
 
-    // Return relevant user status information
     const userStatus = {
       username: user.username,
       userId: user.userId,
+      
+      // Energy stats
       energy: user.energy,
       maxEnergy: user.maxEnergy,
-      power: user.power,  // Reflect latest power here
-      speedLevel: user.speedLevel,
-      multiTapLevel: user.multiTapLevel,
-      energyLimitLevel: user.energyLimitLevel,
-      lastTapTime: user.lastTapTime,  // Include last tap time if needed
-      currentTime: Date.now(),        // Optionally include current server time
+      
+      // All three scoring systems
+      scores: {
+        power: user.power,
+        checkInPoints: user.checkInPoints,
+        referralPoints: user.referralPoints,
+        totalPoints: user.power + user.checkInPoints + user.referralPoints
+      },
+      
+      // Level information
+      levels: {
+        speedLevel: user.speedLevel,
+        multiTapLevel: user.multiTapLevel,
+        energyLimitLevel: user.energyLimitLevel
+      },
+      
+      // Check-in information
+      checkIn: {
+        streak: user.checkInStreak,
+        lastCheckIn: user.lastCheckIn
+      },
+      
+      // Time information
+      timing: {
+        lastTapTime: user.lastTapTime,
+        currentTime: Date.now()
+      }
     };
 
-    res.status(200).json({ message: 'User status retrieved successfully', userStatus });
+    res.status(200).json({
+      message: 'User status retrieved successfully',
+      userStatus
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -223,13 +190,12 @@ const monitorUserStatus = async (req, res) => {
 
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({}, 'username userId'); // Retrieve only username and userId fields
+    const users = await User.find({}, 'username userId');
     res.status(200).json({ message: 'Users retrieved successfully', users });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
-
 
 const performDailyCheckIn = async (req, res) => {
   const { userId } = req.body;
@@ -244,33 +210,28 @@ const performDailyCheckIn = async (req, res) => {
     const now = new Date();
     const lastCheckIn = user.lastCheckIn ? new Date(user.lastCheckIn) : null;
 
-    // Check if it's a new day (in UTC)
-    if (!lastCheckIn || now.getUTCDate() !== lastCheckIn.getUTCDate() || now.getUTCMonth() !== lastCheckIn.getUTCMonth() || now.getUTCFullYear() !== lastCheckIn.getUTCFullYear()) {
-      // It's a new day, proceed with check-in
+    if (!lastCheckIn || 
+        now.getUTCDate() !== lastCheckIn.getUTCDate() || 
+        now.getUTCMonth() !== lastCheckIn.getUTCMonth() || 
+        now.getUTCFullYear() !== lastCheckIn.getUTCFullYear()) {
+      
       let reward;
 
       if (!lastCheckIn || now - lastCheckIn > 24 * 60 * 60 * 1000) {
-        // If it's the first check-in or more than 24 hours have passed, reset streak
         user.checkInStreak = 0;
-        reward = 1000; // Day 1 reward
+        reward = 1000;
       } else {
-        // Increment streak
         user.checkInStreak += 1;
 
         if (user.checkInStreak % 7 === 0) {
-          // Every 7th day
           if (user.checkInStreak === 7) {
-            reward = 25000; // Day 7
+            reward = 25000;
           } else {
             const weekNumber = Math.floor(user.checkInStreak / 7);
-            if (weekNumber <= 5) {
-              reward = 50000 * weekNumber; // Day 14, 21, 28, 35
-            } else {
-              reward = 250000; // Fixed at 250k from day 42 onwards
-            }
+            reward = weekNumber <= 5 ? 50000 * weekNumber : 250000;
           }
         } else {
-          reward = 5000; // Standard daily reward
+          reward = 5000;
         }
       }
 
@@ -283,17 +244,20 @@ const performDailyCheckIn = async (req, res) => {
         message: 'Daily check-in successful',
         checkInPointsEarned: reward,
         totalCheckInPoints: user.checkInPoints,
-        streak: user.checkInStreak
+        streak: user.checkInStreak,
+        currentStats: {
+          power: user.power,
+          checkInPoints: user.checkInPoints,
+          referralPoints: user.referralPoints
+        }
       });
     } else {
-      // User has already checked in today
       res.status(400).json({ message: 'You have already checked in today' });
     }
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
-
 
 const getCheckInStatus = async (req, res) => {
   const { userId } = req.params;
@@ -312,28 +276,22 @@ const getCheckInStatus = async (req, res) => {
       now.getUTCMonth() !== lastCheckIn.getUTCMonth() || 
       now.getUTCFullYear() !== lastCheckIn.getUTCFullYear();
 
-    // Calculate the check-in value for today
     let todayCheckInValue;
     if (!canCheckInToday) {
-      todayCheckInValue = 0; // Already checked in today
+      todayCheckInValue = 0;
     } else if (!lastCheckIn || now - lastCheckIn > 48 * 60 * 60 * 1000) {
-      todayCheckInValue = 1000; // First day or streak broken
+      todayCheckInValue = 1000;
     } else {
       const nextStreakDay = user.checkInStreak + 1;
       if (nextStreakDay % 7 === 0) {
-        // Every 7th day
         if (nextStreakDay === 7) {
           todayCheckInValue = 25000;
         } else {
           const weekNumber = Math.floor(nextStreakDay / 7);
-          if (weekNumber <= 5) {
-            todayCheckInValue = 50000 * weekNumber;
-          } else {
-            todayCheckInValue = 250000;
-          }
+          todayCheckInValue = weekNumber <= 5 ? 50000 * weekNumber : 250000;
         }
       } else {
-        todayCheckInValue = 5000; // Standard daily reward
+        todayCheckInValue = 5000;
       }
     }
 
@@ -342,7 +300,40 @@ const getCheckInStatus = async (req, res) => {
       checkInStreak: user.checkInStreak,
       totalCheckInPoints: user.checkInPoints,
       canCheckInToday: canCheckInToday,
-      todayCheckInValue: todayCheckInValue
+      todayCheckInValue: todayCheckInValue,
+      currentStats: {
+        power: user.power,
+        checkInPoints: user.checkInPoints,
+        referralPoints: user.referralPoints
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// GET: Retrieve referral details
+const getReferralDetails = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const referredUsers = await User.find({ referral: user.username }).countDocuments();
+
+    res.status(200).json({
+      message: 'Referral details retrieved successfully',
+      referralPoints: user.referralPoints,
+      referredUsersCount: referredUsers,
+      currentStats: {
+        power: user.power,
+        checkInPoints: user.checkInPoints,
+        referralPoints: user.referralPoints
+      }
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });

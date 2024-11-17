@@ -8,7 +8,6 @@ const {
   getAllUsers,
   performDailyCheckIn, 
   getCheckInStatus,
-  verifyReferralData,
   getReferralDetails
 } = require('../controller/userController');
 
@@ -48,7 +47,6 @@ router.get('/check-in/:userId', getCheckInStatus);
 
 router.get('/referral-details/:userId', getReferralDetails);
 
-router.get('/verify-referral/:username', verifyReferralData);
 
 // TASK ROUTES
 

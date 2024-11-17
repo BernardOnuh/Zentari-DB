@@ -4,13 +4,17 @@ const ObjectId = mongoose.Types.ObjectId;
 
 // Helper function to validate and sanitize referral data
 const validateReferralData = async (username, referral) => {
+  if (!referral) return null;
+  
   // Check for self-referral
   if (username === referral) {
     throw new Error('Cannot refer yourself');
   }
 
-  // Find inviter
-  const inviter = await User.findOne({ username: referral });
+  // Find inviter and explicitly select needed fields
+  const inviter = await User.findOne({ username: referral })
+    .select('+directReferrals +referralPoints');
+    
   if (!inviter) {
     throw new Error('Referral username does not exist');
   }
@@ -20,25 +24,31 @@ const validateReferralData = async (username, referral) => {
 
 // POST: Register new user with enhanced referral handling
 const registerUser = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { username, userId, referral } = req.body;
 
     // Check if the username already exists
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({ username }).session(session);
     if (existingUser) {
+      await session.abortTransaction();
       return res.status(400).json({ message: 'Username already exists' });
     }
 
+    // Validate referral if provided
     let inviter = null;
     if (referral) {
       try {
         inviter = await validateReferralData(username, referral);
       } catch (error) {
+        await session.abortTransaction();
         return res.status(400).json({ message: error.message });
       }
     }
 
-    // Create a new user with explicit referral details
+    // Create new user with referral information
     const newUser = new User({
       username,
       userId,
@@ -46,13 +56,13 @@ const registerUser = async (req, res) => {
       power: 0,
       checkInPoints: 0,
       referralPoints: 0,
-      directReferrals: [], // Initialize empty array
+      directReferrals: [],
       createdAt: new Date()
     });
 
-    await newUser.save();
+    await newUser.save({ session });
 
-    // If there's a valid referral, update inviter with atomic operation
+    // Update inviter's referral details if there was a referral
     if (inviter) {
       const updatedInviter = await User.findOneAndUpdate(
         { username: referral },
@@ -65,23 +75,38 @@ const registerUser = async (req, res) => {
             }
           }
         },
-        { new: true, runValidators: true }
+        { 
+          new: true, 
+          runValidators: true,
+          session 
+        }
       );
 
       if (!updatedInviter) {
-        // Rollback new user creation if inviter update fails
-        await User.deleteOne({ username });
+        await session.abortTransaction();
         return res.status(500).json({ message: 'Failed to update referral information' });
       }
     }
 
-    // Add test endpoint to verify referral data
-    const verificationData = await User.findOne({ username }).select('+directReferrals +referral +referralPoints');
+    // Commit transaction
+    await session.commitTransaction();
+
+    // Verify the referral data after successful registration
+    const verificationData = await User.findOne({ username })
+      .select('+directReferrals +referral +referralPoints');
     
-    res.status(201).json({
+    const response = {
       message: 'User registered successfully',
-      user: newUser,
-      referralInfo: referral ? {
+      user: {
+        username: newUser.username,
+        userId: newUser.userId,
+        referral: newUser.referral
+      }
+    };
+
+    // Add referral information if there was a referral
+    if (referral) {
+      response.referralInfo = {
         invitedBy: referral,
         pointsAwarded: 2000,
         verificationData: {
@@ -89,16 +114,24 @@ const registerUser = async (req, res) => {
           userDirectReferrals: verificationData.directReferrals,
           inviterPoints: inviter ? inviter.referralPoints : null
         }
-      } : null
-    });
+      };
+    }
+
+    res.status(201).json(response);
 
   } catch (error) {
+    await session.abortTransaction();
     console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      message: 'Server error during registration', 
+      error: error.message 
+    });
+  } finally {
+    session.endSession();
   }
 };
 
-// GET: Test endpoint to verify referral data
+// GET: Enhanced referral verification endpoint
 const verifyReferralData = async (req, res) => {
   try {
     const { username } = req.params;
@@ -110,31 +143,45 @@ const verifyReferralData = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let inviterData = null;
-    if (user.referral) {
-      inviterData = await User.findOne({ username: user.referral })
-        .select('+directReferrals +referralPoints');
-    }
-
-    res.status(200).json({
+    const response = {
       userData: {
         username: user.username,
         referral: user.referral,
         referralPoints: user.referralPoints,
-        directReferrals: user.directReferrals
-      },
-      inviterData: inviterData ? {
-        username: inviterData.username,
-        referralPoints: inviterData.referralPoints,
-        directReferrals: inviterData.directReferrals
-      } : null
-    });
+        directReferrals: user.directReferrals,
+        totalDirectReferrals: user.directReferrals.length
+      }
+    };
+
+    // Get inviter data if user was referred
+    if (user.referral) {
+      const inviter = await User.findOne({ username: user.referral })
+        .select('+directReferrals +referralPoints');
+        
+      if (inviter) {
+        response.inviterData = {
+          username: inviter.username,
+          referralPoints: inviter.referralPoints,
+          totalDirectReferrals: inviter.directReferrals.length,
+          // Check if the user is actually in inviter's directReferrals
+          referralVerified: inviter.directReferrals.some(
+            ref => ref.username === user.username
+          )
+        };
+      }
+    }
+
+    res.status(200).json(response);
     
   } catch (error) {
     console.error('Verification error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ 
+      message: 'Server error during verification', 
+      error: error.message 
+    });
   }
 };
+
 
 // GET: Get referral details with improved error handling and logging
 const getReferralDetails = async (req, res) => {

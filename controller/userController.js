@@ -47,6 +47,85 @@ const registerUser = async (req, res) => {
   }
 };
 
+
+const getReferralDetails = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Get direct referrals from stored array
+    const directReferrals = user.directReferrals;
+    
+    // Get indirect referrals (people invited by user's referrals)
+    const indirectReferrals = await User.aggregate([
+      // Match users who were referred by any of the direct referrals
+      {
+        $match: {
+          referral: {
+            $in: directReferrals.map(ref => ref.username)
+          }
+        }
+      },
+      // Project only needed fields
+      {
+        $project: {
+          username: 1,
+          referral: 1,
+          joinedAt: 1
+        }
+      }
+    ]);
+
+    // Group direct referrals by month for historical tracking
+    const referralsByMonth = directReferrals.reduce((acc, ref) => {
+      const month = new Date(ref.joinedAt).toLocaleString('default', { month: 'long', year: 'numeric' });
+      acc[month] = (acc[month] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.status(200).json({
+      message: 'Referral details retrieved successfully',
+      yourInviteCode: user.username,  // Their username is their invite code
+      referralPoints: user.referralPoints,
+      referralStats: {
+        directReferrals: {
+          count: directReferrals.length,
+          pointsPerReferral: 500,
+          totalPoints: directReferrals.length * 500,
+          list: directReferrals.map(ref => ({
+            username: ref.username,
+            joinedAt: ref.joinedAt
+          }))
+        },
+        indirectReferrals: {
+          count: indirectReferrals.length,
+          pointsPerReferral: 100,
+          totalPoints: indirectReferrals.length * 100,
+          list: indirectReferrals.map(ref => ({
+            username: ref.username,
+            referredBy: ref.referral
+          }))
+        }
+      },
+      referralHistory: {
+        byMonth: referralsByMonth
+      },
+      currentStats: {
+        power: user.power,
+        checkInPoints: user.checkInPoints,
+        referralPoints: user.referralPoints
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
 // PUT: Upgrade speed, multitap, or energy limit level
 const upgradeLevel = async (req, res) => {
   const { userId, upgradeType } = req.body;
@@ -312,41 +391,14 @@ const getCheckInStatus = async (req, res) => {
   }
 };
 
-// GET: Retrieve referral details
-const getReferralDetails = async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    const user = await User.findOne({ userId });
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const referredUsers = await User.find({ referral: user.username }).countDocuments();
-
-    res.status(200).json({
-      message: 'Referral details retrieved successfully',
-      referralPoints: user.referralPoints,
-      referredUsersCount: referredUsers,
-      currentStats: {
-        power: user.power,
-        checkInPoints: user.checkInPoints,
-        referralPoints: user.referralPoints
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
-  }
-};
-
 module.exports = {
   registerUser,
+  getReferralDetails,
   upgradeLevel,
   handleTap,
   monitorUserStatus,
   getAllUsers,
   performDailyCheckIn,
   getCheckInStatus,
-  getReferralDetails
+
 };

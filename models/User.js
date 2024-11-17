@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
+  // User Identity
   username: {
     type: String,
     required: true,
@@ -11,6 +12,8 @@ const userSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+
+  // Energy System
   energy: {
     type: Number,
     default: 500
@@ -19,20 +22,12 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 500
   },
-  // Separate point systems
-  power: {
-    type: Number,
-    default: 0
+  lastTapTime: {
+    type: Date,
+    default: Date.now
   },
-  checkInPoints: {
-    type: Number,
-    default: 0
-  },
-  referralPoints: {
-    type: Number,
-    default: 0
-  },
-  // Other properties
+
+  // Level & Multiplier Systems
   multiplier: {
     type: Number,
     default: 1
@@ -49,18 +44,22 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 1
   },
-  referral: {
-    type: String,
-    default: null
+
+  // Point Systems
+  power: {
+    type: Number,
+    default: 0
   },
-  lastTapTime: {
-    type: Date,
-    default: Date.now
+  checkInPoints: {
+    type: Number,
+    default: 0
   },
-  tasksCompleted: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Task'
-  }],
+  referralPoints: {
+    type: Number,
+    default: 0
+  },
+
+  // Check-in System
   lastCheckIn: {
     type: Date,
     default: null
@@ -68,8 +67,41 @@ const userSchema = new mongoose.Schema({
   checkInStreak: {
     type: Number,
     default: 0
+  },
+
+  // Referral System
+  referral: {
+    type: String,
+    default: null
+  },
+  directReferrals: [{
+    username: String,
+    joinedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+
+  // Tasks System
+  tasksCompleted: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Task'
+  }],
+
+  // Timestamps for record-keeping
+  createdAt: {
+    type: Date,
+    default: Date.now
   }
+}, {
+  timestamps: true  // Automatically add createdAt and updatedAt timestamps
 });
+
+// Indexes for performance
+userSchema.index({ username: 1 });
+userSchema.index({ userId: 1 });
+userSchema.index({ power: -1 });  // For leaderboard queries
+userSchema.index({ referral: 1 }); // For referral queries
 
 const User = mongoose.model('User', userSchema);
 

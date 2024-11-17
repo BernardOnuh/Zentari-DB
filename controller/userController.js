@@ -2,7 +2,7 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const ObjectId = mongoose.Types.ObjectId;
 
-// POST: Register new user
+// POST: Register new user with fixed referral handling
 const registerUser = async (req, res) => {
   try {
     const { username, userId, referral } = req.body;
@@ -13,9 +13,9 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ message: 'Username already exists' });
     }
 
-    // Find the inviting user by their username (referral)
     let inviter = null;
     if (referral) {
+      // Find inviter and explicitly select all fields
       inviter = await User.findOne({ username: referral });
       if (!inviter) {
         return res.status(400).json({ message: 'Referral username does not exist' });
@@ -32,26 +32,34 @@ const registerUser = async (req, res) => {
       referralPoints: 0
     });
 
-    // If there's a valid referral, update the inviter
-    if (inviter) {
-      // Add referral points
-      inviter.referralPoints += 2000;
-      
-      // Add to direct referrals array
-      inviter.directReferrals.push({
-        username: username,
-        joinedAt: new Date()
-      });
-      
-      await inviter.save();
-    }
-
     await newUser.save();
 
-    res.status(201).json({ 
-      message: 'User registered successfully', 
+    // If there's a valid referral, update inviter using findOneAndUpdate
+    if (inviter) {
+      const updatedInviter = await User.findOneAndUpdate(
+        { username: referral },
+        {
+          $inc: { referralPoints: 2000 },
+          $push: {
+            directReferrals: {
+              username: username,
+              joinedAt: new Date()
+            }
+          }
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (!updatedInviter) {
+        console.error('Failed to update inviter');
+        return res.status(500).json({ message: 'Failed to update referral information' });
+      }
+    }
+
+    res.status(201).json({
+      message: 'User registered successfully',
       user: newUser,
-      referralDetails: referral ? {
+      referralInfo: referral ? {
         invitedBy: referral,
         pointsAwarded: 2000
       } : null
@@ -62,52 +70,66 @@ const registerUser = async (req, res) => {
   }
 };
 
+// GET: Get referral details with improved error handling and logging
 const getReferralDetails = async (req, res) => {
   const { userId } = req.params;
 
   try {
-    const user = await User.findOne({ userId });
+    // Find user and explicitly select all needed fields
+    const user = await User.findOne({ userId }).select('+directReferrals +referralPoints +power +checkInPoints');
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Get direct referrals
+    console.log('Found user:', user.username);
+    console.log('Direct referrals:', user.directReferrals);
+
+    // Ensure directReferrals is initialized
     const directReferrals = user.directReferrals || [];
-    
-    // Get indirect referrals (people invited by user's referrals)
+
+    // Get indirect referrals with improved aggregation
     const indirectReferrals = await User.aggregate([
-      // Match users who were referred by any of the direct referrals
       {
         $match: {
-          referral: {
-            $in: directReferrals.map(ref => ref.username)
-          }
+          referral: user.username // Match against the inviter's username
         }
       },
-      // Project only needed fields
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'username',
+          foreignField: 'referral',
+          as: 'subReferrals'
+        }
+      },
       {
         $project: {
           username: 1,
-          referral: 1,
-          joinedAt: 1,
-          _id: 0
+          joinedAt: '$createdAt',
+          subReferralCount: { $size: '$subReferrals' }
         }
       }
     ]);
 
-    // Group direct referrals by month for historical tracking
+    console.log('Indirect referrals found:', indirectReferrals.length);
+
+    // Group referrals by month with error handling
     const referralsByMonth = directReferrals.reduce((acc, ref) => {
-      const month = new Date(ref.joinedAt).toLocaleString('default', { month: 'long', year: 'numeric' });
-      acc[month] = (acc[month] || 0) + 1;
+      try {
+        const month = new Date(ref.joinedAt).toLocaleString('default', { month: 'long', year: 'numeric' });
+        acc[month] = (acc[month] || 0) + 1;
+      } catch (error) {
+        console.error('Error processing referral date:', error);
+      }
       return acc;
     }, {});
 
-    // Calculate total earnings from referrals
+    // Calculate points
     const directReferralPoints = directReferrals.length * 2000;
     const indirectReferralPoints = indirectReferrals.length * 100;
 
-    res.status(200).json({
+    const response = {
       message: 'Referral details retrieved successfully',
       yourInviteCode: user.username,
       referralPoints: user.referralPoints,
@@ -134,14 +156,19 @@ const getReferralDetails = async (req, res) => {
       currentStats: {
         power: user.power,
         checkInPoints: user.checkInPoints,
-        referralPoints: user.referralPoints
+        referralPoints: user.referralPoints,
+        totalPoints: user.power + user.checkInPoints + user.referralPoints
       }
-    });
+    };
+
+    console.log('Sending referral details response:', response);
+    res.status(200).json(response);
   } catch (error) {
-    console.error('Referral details error:', error);
+    console.error('Error in getReferralDetails:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
+
 
 // PUT: Upgrade speed, multitap, or energy limit level
 const upgradeLevel = async (req, res) => {

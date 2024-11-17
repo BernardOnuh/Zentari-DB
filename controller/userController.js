@@ -27,26 +27,40 @@ const registerUser = async (req, res) => {
       username,
       userId,
       referral: referral ? inviter.username : null,
-      // Initialize separate point systems
       power: 0,
       checkInPoints: 0,
       referralPoints: 0
     });
 
-    // If there's a valid referral, reward the inviter
+    // If there's a valid referral, update the inviter
     if (inviter) {
-      inviter.referralPoints += 2000; // Add to separate referral points
+      // Add referral points
+      inviter.referralPoints += 2000;
+      
+      // Add to direct referrals array
+      inviter.directReferrals.push({
+        username: username,
+        joinedAt: new Date()
+      });
+      
       await inviter.save();
     }
 
     await newUser.save();
 
-    res.status(201).json({ message: 'User registered successfully', user: newUser });
+    res.status(201).json({ 
+      message: 'User registered successfully', 
+      user: newUser,
+      referralDetails: referral ? {
+        invitedBy: referral,
+        pointsAwarded: 2000
+      } : null
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 
 const getReferralDetails = async (req, res) => {
   const { userId } = req.params;
@@ -58,8 +72,8 @@ const getReferralDetails = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Get direct referrals from stored array
-    const directReferrals = user.directReferrals;
+    // Get direct referrals
+    const directReferrals = user.directReferrals || [];
     
     // Get indirect referrals (people invited by user's referrals)
     const indirectReferrals = await User.aggregate([
@@ -76,7 +90,8 @@ const getReferralDetails = async (req, res) => {
         $project: {
           username: 1,
           referral: 1,
-          joinedAt: 1
+          joinedAt: 1,
+          _id: 0
         }
       }
     ]);
@@ -88,15 +103,19 @@ const getReferralDetails = async (req, res) => {
       return acc;
     }, {});
 
+    // Calculate total earnings from referrals
+    const directReferralPoints = directReferrals.length * 2000;
+    const indirectReferralPoints = indirectReferrals.length * 100;
+
     res.status(200).json({
       message: 'Referral details retrieved successfully',
-      yourInviteCode: user.username,  // Their username is their invite code
+      yourInviteCode: user.username,
       referralPoints: user.referralPoints,
       referralStats: {
         directReferrals: {
           count: directReferrals.length,
-          pointsPerReferral: 500,
-          totalPoints: directReferrals.length * 500,
+          pointsPerReferral: 2000,
+          totalPoints: directReferralPoints,
           list: directReferrals.map(ref => ({
             username: ref.username,
             joinedAt: ref.joinedAt
@@ -105,11 +124,8 @@ const getReferralDetails = async (req, res) => {
         indirectReferrals: {
           count: indirectReferrals.length,
           pointsPerReferral: 100,
-          totalPoints: indirectReferrals.length * 100,
-          list: indirectReferrals.map(ref => ({
-            username: ref.username,
-            referredBy: ref.referral
-          }))
+          totalPoints: indirectReferralPoints,
+          list: indirectReferrals
         }
       },
       referralHistory: {
@@ -122,7 +138,8 @@ const getReferralDetails = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+    console.error('Referral details error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 

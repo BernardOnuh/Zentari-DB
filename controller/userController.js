@@ -406,15 +406,15 @@ const getReferralRewardStatus = async (req, res) => {
 
     const totalReferrals = user.directReferrals.length;
 
-    // Find claimable rewards: Unclaimed rewards that the user qualifies for
-    const claimableRewards = user.referralRewards.filter(
-      reward => totalReferrals >= reward.referrals && !reward.claimed
-    );
+    // Get all rewards that the user qualifies for but hasn't claimed yet
+    const claimableRewards = user.referralRewards
+      .filter(reward => totalReferrals >= reward.referrals && !reward.claimed)
+      .sort((a, b) => a.referrals - b.referrals); // Sort by referral count ascending
 
-    // Find the next reward tier
-    const nextRewardTier = user.referralRewards.find(
-      reward => totalReferrals < reward.referrals
-    );
+    // Find the next unclaimed reward tier
+    const nextRewardTier = user.referralRewards
+      .filter(reward => totalReferrals < reward.referrals)
+      .sort((a, b) => a.referrals - b.referrals)[0];
 
     res.status(200).json({
       message: 'Referral reward status retrieved successfully',
@@ -423,18 +423,22 @@ const getReferralRewardStatus = async (req, res) => {
         referrals: reward.referrals,
         reward: reward.reward,
       })),
-      nextReward: nextRewardTier
-        ? {
-            referralsNeeded: nextRewardTier.referrals - totalReferrals,
-            reward: nextRewardTier.reward,
-          }
-        : null, // No next reward if all tiers are completed
+      nextReward: nextRewardTier ? {
+        referralsNeeded: nextRewardTier.referrals - totalReferrals,
+        referrals: nextRewardTier.referrals,
+        reward: nextRewardTier.reward
+      } : null,
+      allRewards: user.referralRewards.map(reward => ({
+        referrals: reward.referrals,
+        reward: reward.reward,
+        claimed: reward.claimed,
+        qualified: totalReferrals >= reward.referrals
+      }))
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
-
 
 const claimReferralReward = async (req, res) => {
   const { userId } = req.body;
@@ -448,31 +452,48 @@ const claimReferralReward = async (req, res) => {
 
     const totalReferrals = user.directReferrals.length;
 
-    // Find the first unclaimed reward the user qualifies for
-    const unclaimedReward = user.referralRewards.find(reward => {
-      console.log(`Checking reward: referrals=${reward.referrals}, claimed=${reward.claimed}`);
-      return totalReferrals >= reward.referrals && !reward.claimed;
-    });
+    // Find all unclaimed rewards that the user qualifies for
+    const claimableRewards = user.referralRewards.filter(reward => 
+      totalReferrals >= reward.referrals && !reward.claimed
+    ).sort((a, b) => a.referrals - b.referrals);
 
-    if (!unclaimedReward) {
+    if (claimableRewards.length === 0) {
       return res.status(400).json({
         message: 'No claimable rewards available',
-        totalReferrals, // Add this for debugging
-        referralRewards: user.referralRewards, // Add this for debugging
+        totalReferrals,
+        nextTier: user.referralRewards.find(reward => totalReferrals < reward.referrals)
       });
     }
 
-    // Mark reward as claimed and update referral points
-    unclaimedReward.claimed = true;
-    user.referralPoints += unclaimedReward.reward;
+    // Claim the first available reward (lowest tier)
+    const rewardToClaim = claimableRewards[0];
+    
+    // Find and update the reward in user's referralRewards array
+    const rewardIndex = user.referralRewards.findIndex(
+      reward => reward.referrals === rewardToClaim.referrals
+    );
+    
+    if (rewardIndex !== -1) {
+      user.referralRewards[rewardIndex].claimed = true;
+      user.referralPoints += rewardToClaim.reward;
+      
+      await user.save();
 
-    await user.save();
-
-    res.status(200).json({
-      message: 'Referral reward claimed successfully',
-      claimedReward: unclaimedReward,
-      totalReferralPoints: user.referralPoints,
-    });
+      res.status(200).json({
+        message: 'Referral reward claimed successfully',
+        claimedReward: {
+          referrals: rewardToClaim.referrals,
+          reward: rewardToClaim.reward
+        },
+        remainingClaimableRewards: claimableRewards.slice(1).map(reward => ({
+          referrals: reward.referrals,
+          reward: reward.reward
+        })),
+        totalReferralPoints: user.referralPoints
+      });
+    } else {
+      res.status(400).json({ message: 'Error claiming reward' });
+    }
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }

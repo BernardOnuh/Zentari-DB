@@ -26,6 +26,16 @@ exports.getTasksForUser = async (req, res) => {
   }
 };
 
+// Get all tasks
+exports.getAllTasks = async (req, res) => {
+  try {
+    const tasks = await Task.find({});
+    res.json({ success: true, data: tasks });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // Get a specific task by ID
 exports.getTaskById = async (req, res) => {
   try {

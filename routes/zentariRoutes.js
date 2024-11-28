@@ -15,6 +15,7 @@ const {
 
 const {
   getTasksForUser,
+  getAllTasks,
   getTaskById,
   createTask,
   updateTask,
@@ -60,6 +61,9 @@ router.post('/claim-referral-reward', claimReferralReward);
 
 
 // TASK ROUTES
+
+// GET: Get all tasks
+router.get('/tasks', getTasksForUser);
 
 // GET: Get all tasks for a specific user (excluding completed tasks)
 router.get('/tasks/:username', getTasksForUser);

@@ -25,7 +25,7 @@ const {
   completeTask
 } = require('../controller/taskController');
 
-const taskCompletionController = require('../controllers/taskCompletionController');
+const taskCompletionController = require('../controller/taskCompletionController');
 
 router.post('/tasks/:taskId/complete/:telegramUserId', taskCompletionController.initiateTaskCompletion);
 router.get('/tasks/:taskId/completion-status/:telegramUserId', taskCompletionController.checkTaskCompletion);

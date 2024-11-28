@@ -24,6 +24,11 @@ const {
   completeTask
 } = require('../controller/taskController');
 
+const taskCompletionController = require('../controllers/taskCompletionController');
+
+router.post('/tasks/:taskId/complete/:telegramUserId', taskCompletionController.initiateTaskCompletion);
+router.get('/tasks/:taskId/completion-status/:telegramUserId', taskCompletionController.checkTaskCompletion);
+
 // USER ROUTES
 
 // POST: Register a new user

@@ -4,7 +4,7 @@ const ObjectId = mongoose.Types.ObjectId;
 
 
 const referralRewards = [
-  { referrals: 2, reward: 1000 },
+  { referrals: 5, reward: 1000 },
   { referrals: 10, reward: 2500 },
   { referrals: 25, reward: 5000 },
   { referrals: 50, reward: 10000 },

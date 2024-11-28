@@ -393,6 +393,7 @@ const getCheckInStatus = async (req, res) => {
   }
 };
 
+
 const getReferralRewardStatus = async (req, res) => {
   const { userId } = req.params;
 
@@ -405,10 +406,12 @@ const getReferralRewardStatus = async (req, res) => {
 
     const totalReferrals = user.directReferrals.length;
 
+    // Find claimable rewards: Unclaimed rewards that the user qualifies for
     const claimableRewards = user.referralRewards.filter(
       reward => totalReferrals >= reward.referrals && !reward.claimed
     );
 
+    // Find the next reward tier
     const nextRewardTier = user.referralRewards.find(
       reward => totalReferrals < reward.referrals
     );
@@ -425,12 +428,13 @@ const getReferralRewardStatus = async (req, res) => {
             referralsNeeded: nextRewardTier.referrals - totalReferrals,
             reward: nextRewardTier.reward,
           }
-        : null,
+        : null, // No next reward if all tiers are completed
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
 
 const claimReferralReward = async (req, res) => {
   const { userId } = req.body;
@@ -445,13 +449,16 @@ const claimReferralReward = async (req, res) => {
     const totalReferrals = user.directReferrals.length;
 
     // Find the first unclaimed reward the user qualifies for
-    const unclaimedReward = user.referralRewards.find(
-      reward => totalReferrals >= reward.referrals && !reward.claimed
-    );
+    const unclaimedReward = user.referralRewards.find(reward => {
+      console.log(`Checking reward: referrals=${reward.referrals}, claimed=${reward.claimed}`);
+      return totalReferrals >= reward.referrals && !reward.claimed;
+    });
 
     if (!unclaimedReward) {
       return res.status(400).json({
         message: 'No claimable rewards available',
+        totalReferrals, // Add this for debugging
+        referralRewards: user.referralRewards, // Add this for debugging
       });
     }
 
@@ -470,6 +477,7 @@ const claimReferralReward = async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
 
 
 module.exports = {

@@ -63,7 +63,7 @@ router.post('/claim-referral-reward', claimReferralReward);
 // TASK ROUTES
 
 // GET: Get all tasks
-router.get('/tasks', getTasksForUser);
+router.get('/tasks', getAllTasks);
 
 // GET: Get all tasks for a specific user (excluding completed tasks)
 router.get('/tasks/:username', getTasksForUser);

@@ -2,6 +2,18 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const ObjectId = mongoose.Types.ObjectId;
 
+
+const referralRewards = [
+  { referrals: 5, reward: 1000 },
+  { referrals: 10, reward: 2500 },
+  { referrals: 25, reward: 5000 },
+  { referrals: 50, reward: 10000 },
+  { referrals: 100, reward: 25000 },
+  { referrals: 500, reward: 50000 },
+  { referrals: 1000, reward: 100000 },
+];
+
+
 // Updated controller functions
 const registerUser = async (req, res) => {
   try {
@@ -16,14 +28,14 @@ const registerUser = async (req, res) => {
     // Find direct referrer
     let directReferrer = null;
     let indirectReferrer = null;
-    
+
     if (referral) {
       directReferrer = await User.findOne({ username: referral });
       if (!directReferrer) {
         return res.status(400).json({ message: 'Referral username does not exist' });
       }
-      
-      // Check if direct referrer was referred by someone (for indirect referral)
+
+      // Check for indirect referrals
       if (directReferrer.referral) {
         indirectReferrer = await User.findOne({ username: directReferrer.referral });
       }
@@ -34,27 +46,30 @@ const registerUser = async (req, res) => {
       username,
       userId,
       referral: referral ? directReferrer.username : null,
+      referralRewards: referralRewards.map(reward => ({
+        referrals: reward.referrals,
+        reward: reward.reward,
+        claimed: false,
+      })),
     });
 
-    // Handle referral rewards
+    // Handle referral rewards for referrers
     if (directReferrer) {
-      // Direct referrer gets 500 points
       directReferrer.referralPoints += 500;
       directReferrer.directReferrals.push({
         username,
         userId,
-        pointsEarned: 500
+        pointsEarned: 500,
       });
       await directReferrer.save();
 
-      // Indirect referrer gets 20% of 500 = 100 points
       if (indirectReferrer) {
         indirectReferrer.referralPoints += 100;
         indirectReferrer.indirectReferrals.push({
           username,
           userId,
           referredBy: directReferrer.username,
-          pointsEarned: 100
+          pointsEarned: 100,
         });
         await indirectReferrer.save();
       }
@@ -62,14 +77,12 @@ const registerUser = async (req, res) => {
 
     await newUser.save();
 
-    res.status(201).json({ 
-      message: 'User registered successfully', 
-      user: newUser 
-    });
+    res.status(201).json({ message: 'User registered successfully', user: newUser });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
 
 const getReferralDetails = async (req, res) => {
   const { userId } = req.params;
@@ -380,6 +393,83 @@ const getCheckInStatus = async (req, res) => {
   }
 };
 
+const getReferralRewardStatus = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const totalReferrals = user.directReferrals.length;
+
+    const claimableRewards = user.referralRewards.filter(
+      reward => totalReferrals >= reward.referrals && !reward.claimed
+    );
+
+    const nextRewardTier = user.referralRewards.find(
+      reward => totalReferrals < reward.referrals
+    );
+
+    res.status(200).json({
+      message: 'Referral reward status retrieved successfully',
+      totalReferrals,
+      claimableRewards: claimableRewards.map(reward => ({
+        referrals: reward.referrals,
+        reward: reward.reward,
+      })),
+      nextReward: nextRewardTier
+        ? {
+            referralsNeeded: nextRewardTier.referrals - totalReferrals,
+            reward: nextRewardTier.reward,
+          }
+        : null,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+const claimReferralReward = async (req, res) => {
+  const { userId } = req.body;
+
+  try {
+    const user = await User.findOne({ userId });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const totalReferrals = user.directReferrals.length;
+
+    // Find the first unclaimed reward the user qualifies for
+    const unclaimedReward = user.referralRewards.find(
+      reward => totalReferrals >= reward.referrals && !reward.claimed
+    );
+
+    if (!unclaimedReward) {
+      return res.status(400).json({
+        message: 'No claimable rewards available',
+      });
+    }
+
+    // Mark reward as claimed and update referral points
+    unclaimedReward.claimed = true;
+    user.referralPoints += unclaimedReward.reward;
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Referral reward claimed successfully',
+      claimedReward: unclaimedReward,
+      totalReferralPoints: user.referralPoints,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
 
 
 module.exports = {
@@ -390,5 +480,7 @@ module.exports = {
   getAllUsers,
   performDailyCheckIn,
   getCheckInStatus,
-  getReferralDetails
+  getReferralDetails,
+  getReferralRewardStatus,
+  claimReferralReward
 };

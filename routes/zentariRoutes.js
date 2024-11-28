@@ -8,7 +8,9 @@ const {
   getAllUsers,
   performDailyCheckIn, 
   getCheckInStatus,
-  getReferralDetails
+  getReferralDetails,
+  getReferralRewardStatus,
+  claimReferralReward
 } = require('../controller/userController');
 
 const {
@@ -46,6 +48,10 @@ router.post('/check-in', performDailyCheckIn);
 router.get('/check-in/:userId', getCheckInStatus);
 
 router.get('/referral-details/:userId', getReferralDetails);
+
+// New routes
+router.get('/referral-reward-status/:userId', getReferralRewardStatus);
+router.post('/claim-referral-reward', claimReferralReward);
 
 
 // TASK ROUTES

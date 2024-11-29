@@ -11,6 +11,40 @@ const REFERRAL_REWARD_TIERS = [
   { referrals: 1000, reward: 100000 },
 ];
 
+// Game Constants
+const UPGRADE_COSTS = {
+  multiTap: [
+    { level: 1, cost: 1000 },
+    { level: 2, cost: 10000 },
+    { level: 3, cost: 100000 },
+    { level: 4, cost: 1000000 },
+    { level: 5, starCost: 10, reward: 100000 },
+    { level: 6, starCost: 20, reward: 1000000 },
+    { level: 7, starCost: 30, reward: 5000000 },
+    { level: 8, starCost: 30, reward: 10000000 }
+  ],
+  speed: [
+    { level: 1, cost: 1000 },
+    { level: 2, cost: 10000 },
+    { level: 3, cost: 100000 },
+    { level: 4, cost: 1000000 },
+    { level: 5, starCost: 10, reward: 100000 },
+    { level: 6, starCost: 20, reward: 1000000 },
+    { level: 7, starCost: 30, reward: 5000000 },
+    { level: 8, starCost: 30, reward: 10000000 }
+  ],
+  energyLimit: [
+    { level: 1, cost: 1000 },
+    { level: 2, cost: 10000 },
+    { level: 3, cost: 100000 },
+    { level: 4, cost: 1000000 },
+    { level: 5, starCost: 10, reward: 100000 },
+    { level: 6, starCost: 20, reward: 1000000 },
+    { level: 7, starCost: 30, reward: 5000000 },
+    { level: 8, starCost: 30, reward: 10000000 }
+  ]
+};
+
 // Referral Reward Schema
 const referralRewardSchema = new mongoose.Schema({
   referrals: {
@@ -86,6 +120,29 @@ const indirectReferralSchema = new mongoose.Schema({
   },
 });
 
+// Auto Tap Bot Schema
+const autoTapBotSchema = new mongoose.Schema({
+  level: {
+    type: Number,
+    enum: [0, 1, 2, 3], // 0: Default 2hr, 1: 7hr, 2: 14hr, 3: 24hr
+    default: 0
+  },
+  starCost: {
+    type: Number,
+    enum: [0, 20, 50, 100]
+  },
+  duration: {
+    type: Number,
+    enum: [2, 7, 14, 24]
+  },
+  validUntil: Date,
+  lastClaimed: Date,
+  isActive: {
+    type: Boolean,
+    default: false
+  }
+});
+
 // Achievement Schema
 const achievementSchema = new mongoose.Schema({
   name: String,
@@ -94,6 +151,11 @@ const achievementSchema = new mongoose.Schema({
     default: Date.now,
   },
   description: String,
+  type: {
+    type: String,
+    enum: ['TAP', 'UPGRADE', 'REFERRAL', 'CHECKIN', 'SPECIAL']
+  },
+  reward: Number
 });
 
 // Main User Schema
@@ -139,16 +201,26 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 1,
       min: 1,
+      max: 8
     },
     multiTapLevel: {
       type: Number,
       default: 1,
       min: 1,
+      max: 8
     },
     energyLimitLevel: {
       type: Number,
       default: 1,
       min: 1,
+      max: 8
+    },
+
+    // Currency Systems
+    stars: {
+      type: Number,
+      default: 0,
+      min: 0
     },
 
     // Point Systems
@@ -211,6 +283,9 @@ const userSchema = new mongoose.Schema(
       }
     },
 
+    // Auto Tap Bot
+    autoTapBot: autoTapBotSchema,
+
     // Tasks System
     tasksCompleted: [{
       type: mongoose.Schema.Types.ObjectId,
@@ -239,6 +314,11 @@ const userSchema = new mongoose.Schema(
         default: 0,
         min: 0,
       },
+      highestLevel: {
+        multiTap: { type: Number, default: 1 },
+        speed: { type: Number, default: 1 },
+        energyLimit: { type: Number, default: 1 }
+      }
     },
 
     // Achievements & Badges
@@ -292,6 +372,14 @@ userSchema.virtual('rewardTierStatus').get(function() {
 
 // Methods
 userSchema.methods = {
+  calculateEnergyRegeneration() {
+    const now = Date.now();
+    const timeDiff = (now - this.lastTapTime) / 1000; // Convert to seconds
+    const regenRate = this.speedLevel; // Energy per second based on speed level
+    const regeneratedEnergy = Math.floor(timeDiff * regenRate);
+    return Math.min(this.maxEnergy, this.energy + regeneratedEnergy);
+  },
+
   isEligibleForReward(referralCount) {
     const tier = REFERRAL_REWARD_TIERS.find(t => t.referrals === referralCount);
     if (!tier) return false;
@@ -318,6 +406,23 @@ userSchema.methods = {
         totalReferrals >= reward.referrals
       )
       .sort((a, b) => a.referrals - b.referrals);
+  },
+
+  canUpgrade(upgradeType) {
+    const currentLevel = this[`${upgradeType}Level`];
+    const nextTier = UPGRADE_COSTS[upgradeType][currentLevel];
+    
+    if (!nextTier) return false;
+    
+    if (nextTier.starCost) {
+      return this.stars >= nextTier.starCost;
+    }
+    return this.totalPoints >= nextTier.cost;
+  },
+
+  getUpgradeCost(upgradeType) {
+    const currentLevel = this[`${upgradeType}Level`];
+    return UPGRADE_COSTS[upgradeType][currentLevel];
   }
 };
 
@@ -342,6 +447,21 @@ userSchema.pre('save', function(next) {
 
   if (this.isModified('power')) {
     this.statistics.totalPowerGenerated = this.power;
+  }
+
+  if (this.isModified('multiTapLevel') || 
+      this.isModified('speedLevel') || 
+      this.isModified('energyLimitLevel')) {
+    this.statistics.highestLevel = {
+      multiTap: Math.max(this.statistics.highestLevel.multiTap, this.multiTapLevel),
+      speed: Math.max(this.statistics.highestLevel.speed, this.speedLevel),
+      energyLimit: Math.max(this.statistics.highestLevel.energyLimit, this.energyLimitLevel)
+    };
+  }
+
+  // Update maxEnergy when energyLimitLevel changes
+  if (this.isModified('energyLimitLevel')) {
+    this.maxEnergy = 500 + (500 * (this.energyLimitLevel - 1));
   }
 
   this.lastActive = new Date();

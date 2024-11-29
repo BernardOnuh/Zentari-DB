@@ -1,16 +1,19 @@
 const express = require('express');
 const router = express.Router();
+
+// Import controllers
 const {
   registerUser,
   upgradeLevel,
   handleTap,
   monitorUserStatus,
   getAllUsers,
-  performDailyCheckIn, 
+  performDailyCheckIn,
   getCheckInStatus,
   getReferralDetails,
   getReferralRewardStatus,
-  claimReferralReward
+  claimReferralReward,
+  getAutoBotEarnings
 } = require('../controller/userController');
 
 const {
@@ -27,65 +30,44 @@ const {
 
 const taskCompletionController = require('../controller/taskCompletionController');
 
-router.post('/tasks/:taskId/complete/:telegramUserId', taskCompletionController.initiateTaskCompletion);
-router.get('/tasks/:taskId/completion-status/:telegramUserId', taskCompletionController.checkTaskCompletion);
+// ============ USER ROUTES ============
 
-// USER ROUTES
-
-// POST: Register a new user
+// Registration and Basic User Management
 router.post('/register', registerUser);
+router.get('/users', getAllUsers);
+router.get('/status/:userId', monitorUserStatus);
+router.get('/autobot/earnings/:userId', getAutoBotEarnings);
 
-// PUT: Upgrade speed, multitap, or energy limit level
+// Game Mechanics
 router.put('/upgrade', upgradeLevel);
-
-// PUT: Handle tapping (consume energy and increase power)
 router.put('/tap', handleTap);
 
-// GET: Monitor user status by userId
-router.get('/status/:userId', monitorUserStatus);
-
-// GET: Fetch all users with their userId
-router.get('/users', getAllUsers);
-
-// POST route for performing daily check-in
+// Check-in System
 router.post('/check-in', performDailyCheckIn);
-
-// GET route for retrieving check-in status
 router.get('/check-in/:userId', getCheckInStatus);
 
+// Referral System
 router.get('/referral-details/:userId', getReferralDetails);
-
-// New routes
 router.get('/referral-reward-status/:userId', getReferralRewardStatus);
 router.post('/claim-referral-reward', claimReferralReward);
 
+// ============ TASK ROUTES ============
 
-// TASK ROUTES
-
-// GET: Get all tasks
+// Task Management
 router.get('/tasks', getAllTasks);
-
-// GET: Get all tasks for a specific user (excluding completed tasks)
-router.get('/tasks/:username', getTasksForUser);
-
-// GET: Get a specific task by its ID
-router.get('/task/:taskId', getTaskById);
-
-// POST: Create a new task
 router.post('/task', createTask);
-
-// PUT: Update a specific task by its ID
+router.post('/tasks', createMultipleTasks);
+router.get('/task/:taskId', getTaskById);
 router.put('/task/:taskId', updateTask);
-
-// DELETE: Delete a task by its ID
 router.delete('/task/:taskId', deleteTask);
 
-// POST: Create multiple tasks
-router.post('/tasks', createMultipleTasks);
-
-// GET: Get all completed tasks for a specific user
+// User-specific Task Routes
+router.get('/tasks/:username', getTasksForUser);
 router.get('/tasks/completed/:username', getCompletedTasks);
 
+// Task Completion
 router.post('/complete/:telegramUserId/:taskId', completeTask);
+router.post('/tasks/:taskId/complete/:telegramUserId', taskCompletionController.initiateTaskCompletion);
+router.get('/tasks/:taskId/completion-status/:telegramUserId', taskCompletionController.checkTaskCompletion);
 
 module.exports = router;

@@ -39,6 +39,7 @@ router.get('/status/:userId', monitorUserStatus);
 router.get('/autobot/earnings/:userId', getAutoBotEarnings);
 
 // Game Mechanics
+
 router.put('/upgrade', upgradeLevel);
 router.put('/tap', handleTap);
 

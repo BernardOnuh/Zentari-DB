@@ -4,17 +4,25 @@ const router = express.Router();
 // Import controllers
 const {
   registerUser,
-  upgradeLevel,
   handleTap,
+  upgradeLevel,
   monitorUserStatus,
-  getAllUsers,
+  activateAutoTapBot,
+  getAutoBotEarnings,
+  getAutoBotStatus,
   performDailyCheckIn,
   getCheckInStatus,
   getReferralDetails,
   getReferralRewardStatus,
   claimReferralReward,
-  getAutoBotEarnings
-} = require('../controller/userController');
+  getAllUsers,
+  getUserStatistics,
+  getUserAchievements,
+  getPowerLeaderboard,
+  getReferralLeaderboard,
+  getEnergyStatus,
+  refillEnergy
+} = require('../controllers/userController');
 
 const {
   getTasksForUser,
@@ -26,9 +34,9 @@ const {
   createMultipleTasks,
   getCompletedTasks,
   completeTask
-} = require('../controller/taskController');
+} = require('../controllers/taskController');
 
-const taskCompletionController = require('../controller/taskCompletionController');
+const taskCompletionController = require('../controllers/taskCompletionController');
 
 // ============ USER ROUTES ============
 
@@ -36,11 +44,19 @@ const taskCompletionController = require('../controller/taskCompletionController
 router.post('/register', registerUser);
 router.get('/users', getAllUsers);
 router.get('/status/:userId', monitorUserStatus);
-router.get('/autobot/earnings/:userId', getAutoBotEarnings);
 
 // Game Mechanics
 router.put('/upgrade', upgradeLevel);
 router.put('/tap', handleTap);
+
+// Energy System
+router.get('/energy/status/:userId', getEnergyStatus);
+router.post('/energy/refill/:userId', refillEnergy);
+
+// Auto Tap Bot Management
+router.post('/autobot/activate', activateAutoTapBot);
+router.get('/autobot/status/:userId', getAutoBotStatus);
+router.get('/autobot/earnings/:userId', getAutoBotEarnings);
 
 // Check-in System
 router.post('/check-in', performDailyCheckIn);
@@ -50,6 +66,14 @@ router.get('/check-in/:userId', getCheckInStatus);
 router.get('/referral-details/:userId', getReferralDetails);
 router.get('/referral-reward-status/:userId', getReferralRewardStatus);
 router.post('/claim-referral-reward', claimReferralReward);
+
+// Progress and Statistics
+router.get('/stats/:userId', getUserStatistics);
+router.get('/achievements/:userId', getUserAchievements);
+
+// Leaderboards
+router.get('/leaderboard/power', getPowerLeaderboard);
+router.get('/leaderboard/referrals', getReferralLeaderboard);
 
 // ============ TASK ROUTES ============
 

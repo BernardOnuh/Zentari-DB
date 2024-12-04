@@ -1,60 +1,5 @@
-const User = require('../models/User');
+const { User, UPGRADE_SYSTEM, AUTO_TAP_BOT_CONFIG, REFERRAL_REWARD_TIERS } = require('../models/User');
 const mongoose = require('mongoose');
-const ObjectId = mongoose.Types.ObjectId;
-
-const referralRewards = [
-  { referrals: 5, reward: 1000 },
-  { referrals: 10, reward: 2500 },
-  { referrals: 25, reward: 5000 },
-  { referrals: 50, reward: 10000 },
-  { referrals: 100, reward: 25000 },
-  { referrals: 500, reward: 50000 },
-  { referrals: 1000, reward: 100000 },
-];
-
-// Constants for point rewards when using stars
-const STAR_UPGRADE_REWARDS = {
-  multiTap: {
-    5: 100000,    // Level 5 reward
-    6: 1000000,   // Level 6 reward
-    7: 5000000,   // Level 7 reward
-    8: 10000000   // Level 8 reward
-  },
-  speed: {
-    5: 100000,
-    6: 1000000,
-    7: 5000000,
-    8: 10000000
-  },
-  energyLimit: {
-    5: 100000,
-    6: 1000000,
-    7: 5000000,
-    8: 10000000
-  }
-};
-
-// Point costs for levels 1-4
-const POINT_UPGRADE_COSTS = {
-  multiTap: {
-    1: 1000,
-    2: 10000,
-    3: 100000,
-    4: 1000000
-  },
-  speed: {
-    1: 1000,
-    2: 10000,
-    3: 100000,
-    4: 1000000
-  },
-  energyLimit: {
-    1: 1000,
-    2: 10000,
-    3: 100000,
-    4: 1000000
-  }
-};
 
 const registerUser = async (req, res) => {
   try {
@@ -79,7 +24,7 @@ const registerUser = async (req, res) => {
       }
     }
 
-    const initialReferralRewards = referralRewards.map(tier => ({
+    const initialReferralRewards = REFERRAL_REWARD_TIERS.map(tier => ({
       referrals: tier.referrals,
       reward: tier.reward,
       claimed: false
@@ -89,10 +34,7 @@ const registerUser = async (req, res) => {
       username,
       userId,
       referral: referral ? directReferrer.username : null,
-      referralRewards: initialReferralRewards,
-      directReferrals: [],
-      indirectReferrals: [],
-      referralPoints: 0
+      referralRewards: initialReferralRewards
     });
 
     if (directReferrer) {
@@ -124,82 +66,11 @@ const registerUser = async (req, res) => {
         username: newUser.username,
         userId: newUser.userId,
         referral: newUser.referral,
-        referralRewards: newUser.referralRewards,
-        referralPoints: newUser.referralPoints
+        referralRewards: newUser.referralRewards
       }
     });
   } catch (error) {
-    console.error('Error in registerUser:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-const upgradeLevel = async (req, res) => {
-  const { userId, upgradeType, isStarUpgrade = false } = req.body;
-
-  try {
-    const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const currentLevel = user[`${upgradeType}Level`];
-    const nextLevel = currentLevel + 1;
-
-    if (nextLevel > 8) {
-      return res.status(400).json({ message: 'Maximum level reached' });
-    }
-
-    if (isStarUpgrade) {
-      if (nextLevel < 5) {
-        return res.status(400).json({ 
-          message: 'Star upgrades only available for levels 5-8' 
-        });
-      }
-      user.power += STAR_UPGRADE_REWARDS[upgradeType][nextLevel];
-    } else {
-      if (nextLevel > 4) {
-        return res.status(400).json({ 
-          message: 'Point upgrades only available for levels 1-4' 
-        });
-      }
-      
-      const cost = POINT_UPGRADE_COSTS[upgradeType][nextLevel];
-      if (user.totalPoints < cost) {
-        return res.status(400).json({ 
-          message: 'Insufficient points',
-          required: cost,
-          current: user.totalPoints
-        });
-      }
-      user.power -= cost;
-    }
-
-    user[`${upgradeType}Level`] = nextLevel;
-
-    if (upgradeType === 'energyLimit') {
-      user.maxEnergy = 500 + (500 * (nextLevel - 1));
-    }
-
-    await user.save();
-
-    res.status(200).json({
-      message: 'Upgrade successful',
-      upgradeType,
-      newLevel: nextLevel,
-      stats: {
-        [upgradeType]: nextLevel,
-        power: user.power,
-        maxEnergy: user.maxEnergy,
-        totalPoints: user.totalPoints
-      }
-    });
-
-  } catch (error) {
-    res.status(500).json({ 
-      message: 'Upgrade failed', 
-      error: error.message 
-    });
   }
 };
 
@@ -208,49 +79,113 @@ const handleTap = async (req, res) => {
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const currentTime = Date.now();
-    const regenRate = 1000 / user.speedLevel;
-    const timeDiff = currentTime - user.lastTapTime;
-    const energyToRegenerate = Math.floor(timeDiff / regenRate);
-    const newEnergy = Math.min(user.energy + energyToRegenerate, user.maxEnergy);
+    const now = Date.now();
+    const timeDiff = (now - user.lastTapTime) / (60 * 1000);
+    const regenTime = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
+    const regeneratedEnergy = Math.floor(timeDiff * (user.maxEnergy / regenTime));
+    const newEnergy = Math.min(user.maxEnergy, user.energy + regeneratedEnergy);
 
-    user.energy = newEnergy;
-    user.lastTapTime = currentTime;
-
-    if (user.energy < 1) {
-      return res.status(400).json({ 
+    if (newEnergy < 1) {
+      return res.status(400).json({
         message: 'Not enough energy',
-        currentEnergy: user.energy,
+        currentEnergy: newEnergy,
         maxEnergy: user.maxEnergy,
-        regenRate: user.speedLevel
+        regenRate: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
       });
     }
 
-    user.energy -= 1;
-    const powerGain = user.multiTapLevel;
-    user.power += powerGain;
+    user.energy = newEnergy - 1;
+    user.lastTapTime = now;
+
+    const tapPower = user.getTapPower();
+    user.power += tapPower;
     user.statistics.totalTaps += 1;
-    user.statistics.totalPowerGenerated += powerGain;
+    user.statistics.totalPowerGenerated += tapPower;
 
     await user.save();
 
     res.status(200).json({
       message: 'Tap successful',
-      powerGained: powerGain,
+      powerGained: tapPower,
       currentStats: {
         energy: user.energy,
         maxEnergy: user.maxEnergy,
         power: user.power,
         totalTaps: user.statistics.totalTaps,
-        powerPerTap: user.multiTapLevel
+        powerPerTap: tapPower
       }
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const upgradeLevel = async (req, res) => {
+  const { userId, upgradeType, useStar = false } = req.body;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const currentLevel = user[`${upgradeType}Level`];
+    const nextLevel = currentLevel + 1;
+
+    if (nextLevel > 8) {
+      return res.status(400).json({ message: 'Maximum level reached' });
+    }
+
+    if (useStar) {
+      if (nextLevel < 5) {
+        return res.status(400).json({ message: 'Star upgrades only available for levels 5-8' });
+      }
+
+      const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 5];
+      if (user.stars < starUpgrade.stars) {
+        return res.status(400).json({ 
+          message: 'Insufficient stars',
+          required: starUpgrade.stars,
+          current: user.stars
+        });
+      }
+
+      user.stars -= starUpgrade.stars;
+      user.power += starUpgrade.reward;
+    } else {
+      if (nextLevel > 4) {
+        return res.status(400).json({ message: 'Point upgrades only available for levels 1-4' });
+      }
+
+      const pointCost = UPGRADE_SYSTEM[upgradeType].points[nextLevel - 1];
+      if (user.totalPoints < pointCost) {
+        return res.status(400).json({
+          message: 'Insufficient points',
+          required: pointCost,
+          current: user.totalPoints
+        });
+      }
+
+      user.power -= pointCost;
+    }
+
+    user[`${upgradeType}Level`] = nextLevel;
+    await user.save();
+
+    res.status(200).json({
+      message: 'Upgrade successful',
+      upgradeType,
+      newLevel: nextLevel,
+      stats: {
+        power: user.power,
+        stars: user.stars,
+        tapPower: user.getTapPower(),
+        maxEnergy: user.maxEnergy,
+        regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Upgrade failed', error: error.message });
   }
 };
 
@@ -259,64 +194,147 @@ const monitorUserStatus = async (req, res) => {
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const currentTime = Date.now();
-    const regenRate = 1000 / user.speedLevel;
-    const timeDiff = currentTime - user.lastTapTime;
-    const energyToRegenerate = Math.floor(timeDiff / regenRate);
-    const newEnergy = Math.min(user.energy + energyToRegenerate, user.maxEnergy);
-
-    user.energy = newEnergy;
-    user.lastTapTime = currentTime;
+    const now = Date.now();
+    const timeDiff = (now - user.lastTapTime) / (60 * 1000);
+    const regenTime = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
+    const regeneratedEnergy = Math.floor(timeDiff * (user.maxEnergy / regenTime));
+    const newEnergy = Math.min(user.maxEnergy, user.energy + regeneratedEnergy);
 
     if (user.energy !== newEnergy) {
+      user.energy = newEnergy;
+      user.lastTapTime = now;
       await user.save();
     }
 
-    const userStatus = {
-      username: user.username,
-      userId: user.userId,
-      energy: user.energy,
-      maxEnergy: user.maxEnergy,
-      scores: {
-        power: user.power,
-        checkInPoints: user.checkInPoints,
-        referralPoints: user.referralPoints,
-        totalPoints: user.power + user.checkInPoints + user.referralPoints
-      },
-      levels: {
-        speedLevel: user.speedLevel,
-        multiTapLevel: user.multiTapLevel,
-        energyLimitLevel: user.energyLimitLevel
-      },
-      checkIn: {
-        streak: user.checkInStreak,
-        lastCheckIn: user.lastCheckIn
-      },
-      timing: {
-        lastTapTime: user.lastTapTime,
-        currentTime: Date.now()
-      }
-    };
-
     res.status(200).json({
-      message: 'User status retrieved successfully',
-      userStatus
+      message: 'Status retrieved successfully',
+      status: {
+        username: user.username,
+        userId: user.userId,
+        energy: user.energy,
+        maxEnergy: user.maxEnergy,
+        tapPower: user.getTapPower(),
+        levels: {
+          multiTap: user.multiTapLevel,
+          speed: user.speedLevel,
+          energyLimit: user.energyLimitLevel
+        },
+        scores: {
+          power: user.power,
+          checkInPoints: user.checkInPoints,
+          referralPoints: user.referralPoints,
+          totalPoints: user.totalPoints
+        },
+        botStatus: user.autoTapBot,
+        timing: {
+          regenTime,
+          lastTapTime: user.lastTapTime,
+          currentTime: now
+        }
+      }
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-const getAllUsers = async (req, res) => {
+const activateAutoTapBot = async (req, res) => {
+  const { userId, level = 'free' } = req.body;
+
   try {
-    const users = await User.find({}, 'username userId');
-    res.status(200).json({ message: 'Users retrieved successfully', users });
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const botConfig = AUTO_TAP_BOT_CONFIG.levels[level];
+    if (!botConfig) return res.status(400).json({ message: 'Invalid bot level' });
+
+    if (level !== 'free') {
+      if (user.stars < botConfig.starCost) {
+        return res.status(400).json({ 
+          message: 'Insufficient stars',
+          required: botConfig.starCost,
+          current: user.stars
+        });
+      }
+      user.stars -= botConfig.starCost;
+    }
+
+    const now = new Date();
+    user.autoTapBot = {
+      level,
+      validUntil: new Date(now.getTime() + (botConfig.validityDays * 24 * 60 * 60 * 1000)),
+      lastClaimed: now,
+      isActive: true
+    };
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Auto tap bot activated successfully',
+      botStatus: user.autoTapBot,
+      stars: user.stars
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Activation failed', error: error.message });
+  }
+};
+
+const getAutoBotEarnings = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.autoTapBot?.isActive) {
+      return res.status(400).json({ message: 'Auto tap bot is not active' });
+    }
+
+    const now = Date.now();
+    const lastClaimed = user.autoTapBot.lastClaimed || user.autoTapBot.validUntil;
+    const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot.level];
+    const timeElapsed = Math.min(
+      now - lastClaimed,
+      config.duration * 60 * 60 * 1000
+    );
+
+    const tapsPerSecond = user.speedLevel;
+    const totalTaps = Math.floor((timeElapsed / 1000) * tapsPerSecond);
+    const tapPower = user.getTapPower();
+    const powerGained = totalTaps * tapPower;
+    const energyUsed = Math.min(totalTaps, user.maxEnergy);
+
+    user.power += powerGained;
+    user.energy = Math.max(0, user.maxEnergy - energyUsed);
+    user.autoTapBot.lastClaimed = now;
+    user.statistics.totalTaps += totalTaps;
+    user.statistics.totalPowerGenerated += powerGained;
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Auto bot earnings claimed successfully',
+      earnings: {
+        timeElapsed: timeElapsed / 1000,
+        totalTaps,
+        powerGained,
+        energyUsed,
+        currentStats: {
+          energy: user.energy,
+          power: user.power,
+          totalTaps: user.statistics.totalTaps
+        },
+        botStatus: {
+          level: user.autoTapBot.level,
+          validUntil: user.autoTapBot.validUntil,
+          duration: config.duration
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to claim earnings', error: error.message });
   }
 };
 
@@ -325,33 +343,25 @@ const performDailyCheckIn = async (req, res) => {
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     const now = new Date();
     const lastCheckIn = user.lastCheckIn ? new Date(user.lastCheckIn) : null;
-
+    
     if (!lastCheckIn || 
         now.getUTCDate() !== lastCheckIn.getUTCDate() || 
         now.getUTCMonth() !== lastCheckIn.getUTCMonth() || 
         now.getUTCFullYear() !== lastCheckIn.getUTCFullYear()) {
       
       let reward;
-
       if (!lastCheckIn || now - lastCheckIn > 24 * 60 * 60 * 1000) {
         user.checkInStreak = 0;
         reward = 1000;
       } else {
         user.checkInStreak += 1;
-
         if (user.checkInStreak % 7 === 0) {
-          if (user.checkInStreak === 7) {
-            reward = 25000;
-          } else {
-            const weekNumber = Math.floor(user.checkInStreak / 7);
-            reward = weekNumber <= 5 ? 50000 * weekNumber : 250000;
-          }
+          reward = user.checkInStreak === 7 ? 25000 : 
+            Math.min(50000 * Math.floor(user.checkInStreak / 7), 250000);
         } else {
           reward = 5000;
         }
@@ -359,22 +369,21 @@ const performDailyCheckIn = async (req, res) => {
 
       user.lastCheckIn = now;
       user.checkInPoints += reward;
+      user.statistics.totalCheckIns += 1;
 
       await user.save();
 
       res.status(200).json({
-        message: 'Daily check-in successful',
-        checkInPointsEarned: reward,
-        totalCheckInPoints: user.checkInPoints,
-        streak: user.checkInStreak,
-        currentStats: {
-          power: user.power,
-          checkInPoints: user.checkInPoints,
-          referralPoints: user.referralPoints
+        message: 'Check-in successful',
+        reward,
+        stats: {
+          streak: user.checkInStreak,
+          totalCheckIns: user.statistics.totalCheckIns,
+          checkInPoints: user.checkInPoints
         }
       });
     } else {
-      res.status(400).json({ message: 'You have already checked in today' });
+      res.status(400).json({ message: 'Already checked in today' });
     }
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -386,46 +395,42 @@ const getCheckInStatus = async (req, res) => {
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     const now = new Date();
     const lastCheckIn = user.lastCheckIn ? new Date(user.lastCheckIn) : null;
-    const canCheckInToday = !lastCheckIn || 
+    const canCheckIn = !lastCheckIn || 
       now.getUTCDate() !== lastCheckIn.getUTCDate() || 
       now.getUTCMonth() !== lastCheckIn.getUTCMonth() || 
       now.getUTCFullYear() !== lastCheckIn.getUTCFullYear();
 
-    let todayCheckInValue;
-    if (!canCheckInToday) {
-      todayCheckInValue = 0;
-    } else if (!lastCheckIn || now - lastCheckIn > 48 * 60 * 60 * 1000) {
-      todayCheckInValue = 1000;
-    } else {
-      const nextStreakDay = user.checkInStreak + 1;
-      if (nextStreakDay % 7 === 0) {
-        if (nextStreakDay === 7) {
-          todayCheckInValue = 25000;
-        } else {
-          const weekNumber = Math.floor(nextStreakDay / 7);
-          todayCheckInValue = weekNumber <= 5 ? 50000 * weekNumber : 250000;
-        }
+    let nextReward = 0;
+    if (canCheckIn) {
+      if (!lastCheckIn || now - lastCheckIn > 48 * 60 * 60 * 1000) {
+        nextReward = 1000;
       } else {
-        todayCheckInValue = 5000;
+        const nextStreak = user.checkInStreak + 1;
+        if (nextStreak % 7 === 0) {
+          nextReward = nextStreak === 7 ? 25000 : 
+            Math.min(50000 * Math.floor(nextStreak / 7), 250000);
+        } else {
+          nextReward = 5000;
+        }
       }
     }
 
+    res.status(200).json
     res.status(200).json({
-      lastCheckIn: user.lastCheckIn,
-      checkInStreak: user.checkInStreak,
-      totalCheckInPoints: user.checkInPoints,
-      canCheckInToday: canCheckInToday,
-      todayCheckInValue: todayCheckInValue,
-      currentStats: {
-        power: user.power,
-        checkInPoints: user.checkInPoints,
-        referralPoints: user.referralPoints
+      status: {
+        lastCheckIn: user.lastCheckIn,
+        streak: user.checkInStreak,
+        canCheckIn,
+        nextReward,
+        stats: {
+          totalCheckIns: user.statistics.totalCheckIns,
+          longestStreak: user.statistics.longestCheckInStreak,
+          checkInPoints: user.checkInPoints
+        }
       }
     });
   } catch (error) {
@@ -438,18 +443,17 @@ const getReferralDetails = async (req, res) => {
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const referralDetails = {
+    const details = {
+      myReferralCode: user.username,
       directReferrals: {
         count: user.directReferrals.length,
         totalPoints: user.directReferrals.reduce((sum, ref) => sum + ref.pointsEarned, 0),
         referrals: user.directReferrals.map(ref => ({
           username: ref.username,
           joinedAt: ref.joinedAt,
-          pointsEpointsEarned: ref.pointsEarned
+          pointsEarned: ref.pointsEarned
         }))
       },
       indirectReferrals: {
@@ -462,14 +466,10 @@ const getReferralDetails = async (req, res) => {
           pointsEarned: ref.pointsEarned
         }))
       },
-      totalReferralPoints: user.referralPoints,
-      myReferralCode: user.username
+      totalReferralPoints: user.referralPoints
     };
 
-    res.status(200).json({
-      message: 'Referral details retrieved successfully',
-      referralDetails
-    });
+    res.status(200).json({ referralDetails: details });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -479,61 +479,37 @@ const getReferralRewardStatus = async (req, res) => {
   const { userId } = req.params;
 
   try {
-    const user = await User.findOne({ userId }).lean();
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (!user.referralRewards || user.referralRewards.length === 0) {
-      const defaultRewards = referralRewards.map(tier => ({
-        referrals: tier.referrals,
-        reward: tier.reward,
-        claimed: false
-      }));
-
-      await User.findOneAndUpdate(
-        { userId: userId },
-        { $set: { referralRewards: defaultRewards } },
-        { new: true }
-      );
-      user.referralRewards = defaultRewards;
-    }
-
-    const totalReferrals = user.directReferrals ? user.directReferrals.length : 0;
-
+    const totalReferrals = user.directReferrals.length;
     const claimableRewards = user.referralRewards
       .filter(reward => totalReferrals >= reward.referrals && !reward.claimed)
       .sort((a, b) => a.referrals - b.referrals);
 
-    const nextRewardTier = user.referralRewards
+    const nextReward = user.referralRewards
       .filter(reward => totalReferrals < reward.referrals && !reward.claimed)
       .sort((a, b) => a.referrals - b.referrals)[0];
 
-    const allRewards = user.referralRewards
-      .sort((a, b) => a.referrals - b.referrals)
-      .map(reward => ({
-        referrals: reward.referrals,
-        reward: reward.reward,
-        claimed: reward.claimed,
-        qualified: totalReferrals >= reward.referrals
-      }));
-
     res.status(200).json({
-      message: 'Referral reward status retrieved successfully',
       totalReferrals,
-      claimableRewards: claimableRewards.map(reward => ({
-        referrals: reward.referrals,
-        reward: reward.reward
+      claimableRewards: claimableRewards.map(r => ({
+        referrals: r.referrals,
+        reward: r.reward
       })),
-      nextReward: nextRewardTier ? {
-        referralsNeeded: nextRewardTier.referrals - totalReferrals,
-        referrals: nextRewardTier.referrals,
-        reward: nextRewardTier.reward
+      nextReward: nextReward ? {
+        referralsNeeded: nextReward.referrals - totalReferrals,
+        referrals: nextReward.referrals,
+        reward: nextReward.reward
       } : null,
-      allRewards
+      allRewards: user.referralRewards.map(r => ({
+        referrals: r.referrals,
+        reward: r.reward,
+        claimed: r.claimed,
+        qualified: totalReferrals >= r.referrals
+      }))
     });
   } catch (error) {
-    console.error('Error in getReferralRewardStatus:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -543,166 +519,63 @@ const claimReferralReward = async (req, res) => {
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    if (!user.referralRewards || user.referralRewards.length === 0) {
-      user.referralRewards = referralRewards.map(tier => ({
-        referrals: tier.referrals,
-        reward: tier.reward,
-        claimed: false
-      }));
-    }
-
-    const totalReferrals = user.directReferrals ? user.directReferrals.length : 0;
-
-    const claimableReward = user.referralRewards
-      .filter(reward => totalReferrals >= reward.referrals && !reward.claimed)
-      .sort((a, b) => a.referrals - b.referrals)[0];
+    const totalReferrals = user.directReferrals.length;
+    const claimableReward = user.getNextClaimableReward();
 
     if (!claimableReward) {
       return res.status(400).json({
-        message: 'No claimable rewards available',
+        message: 'No rewards available to claim',
         totalReferrals,
-        nextRewardInfo: {
-          nextTier: user.referralRewards.find(reward => totalReferrals < reward.referrals),
-          currentReferrals: totalReferrals
-        }
+        nextRequired: user.referralRewards.find(r => 
+          !r.claimed && r.referrals > totalReferrals
+        )?.referrals
       });
     }
 
-    const rewardIndex = user.referralRewards.findIndex(
-      reward => reward.referrals === claimableReward.referrals
+    const rewardIndex = user.referralRewards.findIndex(r => 
+      r.referrals === claimableReward.referrals
     );
-
-    if (rewardIndex === -1) {
-      return res.status(400).json({ message: 'Reward tier not found' });
-    }
-
+    
     user.referralRewards[rewardIndex].claimed = true;
     user.referralPoints += claimableReward.reward;
-
-    const remainingClaimableRewards = user.referralRewards
-      .filter(reward => 
-        totalReferrals >= reward.referrals && 
-        !reward.claimed && 
-        reward.referrals !== claimableReward.referrals
-      )
-      .sort((a, b) => a.referrals - b.referrals);
-
     await user.save();
 
     res.status(200).json({
-      message: 'Referral reward claimed successfully',
-      claimedReward: {
+      message: 'Reward claimed successfully',
+      claimed: {
         referrals: claimableReward.referrals,
-        reward: claimableReward.reward,
-        pointsAwarded: claimableReward.reward
+        reward: claimableReward.reward
       },
-      updatedStatus: {
-        totalReferralPoints: user.referralPoints,
-        totalReferrals,
-        remainingClaimableRewards: remainingClaimableRewards.map(reward => ({
-          referrals: reward.referrals,
-          reward: reward.reward
-        }))
-      },
-      nextReward: remainingClaimableRewards[0] || null
+      newTotal: user.referralPoints,
+      nextReward: user.getNextClaimableReward()
     });
-
   } catch (error) {
-    console.error('Error in claimReferralReward:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-const getAutoBotEarnings = async (req, res) => {
-  const { userId } = req.params;
-
+const getAllUsers = async (req, res) => {
   try {
-    const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Check if autoTapBot is active
-    if (!user.autoTapBot || !user.autoTapBot.isActive) {
-      return res.status(400).json({ 
-        message: 'Auto tap bot is not active',
-        isActive: false
-      });
-    }
-
-    const now = Date.now();
-    const lastClaimed = user.autoTapBot.lastClaimed || user.autoTapBot.validUntil;
-    const botDuration = user.autoTapBot.duration * 60 * 60 * 1000; // Convert hours to milliseconds
-    
-    // Calculate time elapsed since last claim
-    const timeElapsed = Math.min(
-      now - lastClaimed,
-      botDuration
-    );
-
-    // Calculate earnings based on multiTap power and energy constraints
-    const tapsPerSecond = user.speedLevel; // Taps per second based on speed level
-    const totalSeconds = timeElapsed / 1000;
-    const totalPossibleTaps = Math.floor(totalSeconds * tapsPerSecond);
-    
-    // Calculate power gained
-    const powerPerTap = user.multiTapLevel;
-    const totalPowerGained = totalPossibleTaps * powerPerTap;
-
-    // Calculate energy used (1 energy per tap)
-    const energyUsed = Math.min(totalPossibleTaps, user.maxEnergy);
-    
-    // Update user stats
-    user.power += totalPowerGained;
-    user.energy = Math.max(0, user.maxEnergy - energyUsed);
-    user.autoTapBot.lastClaimed = now;
-    user.statistics.totalPowerGenerated += totalPowerGained;
-    user.statistics.totalTaps += totalPossibleTaps;
-
-    await user.save();
-
-    res.status(200).json({
-      message: 'Auto bot earnings retrieved successfully',
-      earnings: {
-        timeElapsed: timeElapsed / 1000, // in seconds
-        totalTaps: totalPossibleTaps,
-        powerGained: totalPowerGained,
-        energyUsed,
-        currentEnergy: user.energy,
-        botStatus: {
-          duration: user.autoTapBot.duration,
-          validUntil: user.autoTapBot.validUntil,
-          isActive: user.autoTapBot.isActive
-        },
-        currentStats: {
-          power: user.power,
-          totalTaps: user.statistics.totalTaps,
-          energyRemaining: user.energy
-        }
-      }
-    });
-
+    const users = await User.find({}, 'username userId power');
+    res.status(200).json({ users });
   } catch (error) {
-    console.error('Error in getAutoBotEarnings:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
 
 module.exports = {
   registerUser,
-  upgradeLevel,
   handleTap,
+  upgradeLevel,
   monitorUserStatus,
-  getAllUsers,
+  activateAutoTapBot,
+  getAutoBotEarnings,
   performDailyCheckIn,
   getCheckInStatus,
   getReferralDetails,
   getReferralRewardStatus,
   claimReferralReward,
-  getAutoBotEarnings
+  getAllUsers
 };

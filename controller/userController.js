@@ -565,6 +565,123 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+const getAutoBotStatus = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.status(200).json({
+      botStatus: {
+        isActive: user.autoTapBot?.isActive || false,
+        level: user.autoTapBot?.level || 'free',
+        validUntil: user.autoTapBot?.validUntil,
+        lastClaimed: user.autoTapBot?.lastClaimed
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const getUserStatistics = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.status(200).json({
+      statistics: user.statistics,
+      levels: {
+        multiTap: user.multiTapLevel,
+        speed: user.speedLevel,
+        energyLimit: user.energyLimitLevel
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const getUserAchievements = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.status(200).json({ achievements: user.achievements });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const getPowerLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username power')
+      .sort({ power: -1 })
+      .limit(100);
+    
+    res.status(200).json({ leaderboard: users });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const getReferralLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username directReferrals')
+      .sort({ 'directReferrals.length': -1 })
+      .limit(100);
+    
+    res.status(200).json({
+      leaderboard: users.map(user => ({
+        username: user.username,
+        referrals: user.directReferrals.length
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const getEnergyStatus = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const currentEnergy = user.calculateEnergyRegeneration();
+    
+    res.status(200).json({
+      energy: currentEnergy,
+      maxEnergy: user.maxEnergy,
+      regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const refillEnergy = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    user.energy = user.maxEnergy;
+    user.lastTapTime = new Date();
+    await user.save();
+
+    res.status(200).json({
+      message: 'Energy refilled successfully',
+      energy: user.energy,
+      maxEnergy: user.maxEnergy
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   registerUser,
   handleTap,
@@ -577,5 +694,12 @@ module.exports = {
   getReferralDetails,
   getReferralRewardStatus,
   claimReferralReward,
-  getAllUsers
+  getAllUsers,
+  getAutoBotStatus,
+  getUserStatistics,
+  getUserAchievements,
+  getPowerLeaderboard,
+  getReferralLeaderboard,
+  getEnergyStatus,
+  refillEnergy
 };

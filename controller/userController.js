@@ -122,6 +122,7 @@ const handleTap = async (req, res) => {
   }
 };
 
+
 const upgradeLevel = async (req, res) => {
   const { userId, upgradeType, useStar = false } = req.body;
 
@@ -157,7 +158,8 @@ const upgradeLevel = async (req, res) => {
         return res.status(400).json({ message: 'Point upgrades only available for levels 1-4' });
       }
 
-      const pointCost = UPGRADE_SYSTEM[upgradeType].points[nextLevel - 1];
+      // Fix: Use currentLevel - 1 to get the correct point cost
+      const pointCost = UPGRADE_SYSTEM[upgradeType].points[currentLevel - 1];
       if (user.totalPoints < pointCost) {
         return res.status(400).json({
           message: 'Insufficient points',

@@ -13,8 +13,8 @@ const REFERRAL_REWARD_TIERS = [
 
 const UPGRADE_SYSTEM = {
   multiTap: {
-    points: [1000, 10000, 100000, 1000000],
-    powerPerLevel: [1, 2, 3, 4],
+    points: [1000, 10000, 100000, 1000000], // Index 0 = Level 1->2, Index 1 = Level 2->3, etc.
+    powerPerLevel: [1, 2, 3, 4], // Index matches level (1-4)
     starUpgrades: [
       { level: 5, stars: 10, reward: 100000, powerIncrease: 2 },
       { level: 6, stars: 20, reward: 500000, powerIncrease: 2 },
@@ -23,8 +23,8 @@ const UPGRADE_SYSTEM = {
     ]
   },
   speed: {
-    points: [1000, 10000, 100000, 1000000],
-    refillTime: [40, 35, 30, 25, 20, 15, 10, 5],
+    points: [1000, 10000, 100000, 1000000], // Index 0 = Level 1->2, Index 1 = Level 2->3, etc.
+    refillTime: [40, 35, 30, 25, 20, 15, 10, 5], // Index matches level - 1
     starUpgrades: [
       { level: 5, stars: 10, reward: 100000 },
       { level: 6, stars: 20, reward: 500000 },
@@ -33,8 +33,8 @@ const UPGRADE_SYSTEM = {
     ]
   },
   energyLimit: {
-    points: [1000, 10000, 100000, 1000000],
-    capacity: [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000],
+    points: [1000, 10000, 100000, 1000000], // Index 0 = Level 1->2, Index 1 = Level 2->3, etc.
+    capacity: [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000], // Index matches level - 1
     starUpgrades: [
       { level: 5, stars: 10, reward: 100000 },
       { level: 6, stars: 20, reward: 500000 },
@@ -43,6 +43,7 @@ const UPGRADE_SYSTEM = {
     ]
   }
 };
+
 
 const AUTO_TAP_BOT_CONFIG = {
   levels: {
@@ -227,11 +228,12 @@ userSchema.methods = {
     const level = this[`${type}Level`];
     if (level >= 8) return null;
     
-    if (level < 4) {
-      return { points: UPGRADE_SYSTEM[type].points[level] };
+    if (level < 5) {
+      // Subtract 1 from level to get correct index in points array
+      return { points: UPGRADE_SYSTEM[type].points[level - 1] };
     }
     
-    const starUpgrade = UPGRADE_SYSTEM[type].starUpgrades[level - 4];
+    const starUpgrade = UPGRADE_SYSTEM[type].starUpgrades[level - 5];
     return {
       stars: starUpgrade.stars,
       reward: starUpgrade.reward,

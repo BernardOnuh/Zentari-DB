@@ -36,7 +36,7 @@ const {
   completeTask
 } = require('../controller/taskController');
 
-const taskCompletionController = require('../controllers/taskCompletionController');
+const taskCompletionController = require('../controller/taskCompletionController');
 
 // ============ USER ROUTES ============
 

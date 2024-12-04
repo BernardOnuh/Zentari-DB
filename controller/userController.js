@@ -123,7 +123,7 @@ const handleTap = async (req, res) => {
 };
 
 const upgradeLevel = async (req, res) => {
-  const { userId, upgradeType, useStar = false } = req.body;
+  const { userId, upgradeType, isStarUpgrade = false } = req.body;
 
   try {
     const user = await User.findOne({ userId });
@@ -136,28 +136,50 @@ const upgradeLevel = async (req, res) => {
       return res.status(400).json({ message: 'Maximum level reached' });
     }
 
-    if (useStar) {
+    if (isStarUpgrade) {
       if (nextLevel < 5) {
         return res.status(400).json({ message: 'Star upgrades only available for levels 5-8' });
       }
 
-      const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 5];
-      if (user.stars < starUpgrade.stars) {
+      const starCosts = {
+        5: 10,
+        6: 20,
+        7: 50,
+        8: 100
+      };
+
+      const starRewards = {
+        5: 100000,
+        6: 500000,
+        7: 1000000,
+        8: 3000000
+      };
+
+      const starCost = starCosts[nextLevel];
+      const starReward = starRewards[nextLevel];
+
+      if (user.stars < starCost) {
         return res.status(400).json({ 
           message: 'Insufficient stars',
-          required: starUpgrade.stars,
+          required: starCost,
           current: user.stars
         });
       }
 
-      user.stars -= starUpgrade.stars;
-      user.power += starUpgrade.reward;
+      user.stars -= starCost;
+      user.power += starReward;
     } else {
       if (nextLevel > 4) {
         return res.status(400).json({ message: 'Point upgrades only available for levels 1-4' });
       }
 
-      const pointCost = UPGRADE_SYSTEM[upgradeType].points[nextLevel - 1];
+      const pointCost = {
+        1: 1000,
+        2: 10000,
+        3: 100000,
+        4: 1000000
+      }[nextLevel];
+
       if (user.totalPoints < pointCost) {
         return res.status(400).json({
           message: 'Insufficient points',
@@ -169,10 +191,30 @@ const upgradeLevel = async (req, res) => {
       user.power -= pointCost;
     }
 
+    // Update level and related stats
     user[`${upgradeType}Level`] = nextLevel;
+
+    // Handle upgrade type specific changes
+    if (upgradeType === 'multiTap') {
+      user.tapPower = user.getTapPower();
+    } else if (upgradeType === 'energyLimit') {
+      const energyLimits = {
+        1: 1000,
+        2: 1500,
+        3: 2000,
+        4: 3000,
+        5: 4000,
+        6: 5000,
+        7: 6000,
+        8: 7000
+      };
+      user.maxEnergy = energyLimits[nextLevel];
+    }
+
     await user.save();
 
-    res.status(200).json({
+    // Return updated stats
+    let response = {
       message: 'Upgrade successful',
       upgradeType,
       newLevel: nextLevel,
@@ -181,11 +223,22 @@ const upgradeLevel = async (req, res) => {
         stars: user.stars,
         tapPower: user.getTapPower(),
         maxEnergy: user.maxEnergy,
-        regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
+        totalPoints: user.totalPoints
       }
-    });
+    };
+
+    // Add upgrade-specific stats
+    if (upgradeType === 'speed') {
+      response.stats.regenTime = [40, 35, 30, 25, 20, 15, 10, 5][nextLevel - 1];
+    }
+
+    res.status(200).json(response);
   } catch (error) {
-    res.status(500).json({ message: 'Upgrade failed', error: error.message });
+    console.error('Upgrade error:', error);
+    res.status(500).json({ 
+      message: 'Upgrade failed', 
+      error: error.message 
+    });
   }
 };
 

@@ -203,16 +203,45 @@ const upgradeLevel = async (req, res) => {
       return res.status(400).json({ message: 'Maximum level reached' });
     }
 
-    // Get the reward for the upgrade
-    const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 6];
-    
-    // Just update the power with reward and increment the level
-    user.power += starUpgrade.reward;
-    user[`${upgradeType}Level`] = nextLevel;
+    if (!useStar) {
+      // Point upgrade (levels 1-5)
+      if (nextLevel > 5) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: 'Point upgrades only available for levels 1-5' });
+      }
 
-    // For multiTap, also update tapPower if applicable
-    if (upgradeType === 'multiTap' && starUpgrade.powerIncrease) {
-      user.tapPower += starUpgrade.powerIncrease;
+      const pointCost = UPGRADE_SYSTEM[upgradeType].points[currentLevel - 1];
+      if (user.power < pointCost) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          message: 'Insufficient points',
+          required: pointCost,
+          current: user.power
+        });
+      }
+
+      // Deduct points and update level
+      user.power -= pointCost;
+      user[`${upgradeType}Level`] = nextLevel;
+
+      // Update tapPower for multiTap upgrades
+      if (upgradeType === 'multiTap') {
+        user.tapPower = UPGRADE_SYSTEM.multiTap.powerPerLevel[nextLevel - 1];
+      }
+    } else {
+      // Star upgrade logic remains the same...
+      if (nextLevel < 6) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: 'Star upgrades only available for levels 6-8' });
+      }
+
+      const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 6];
+      user.power += starUpgrade.reward;
+      user[`${upgradeType}Level`] = nextLevel;
+
+      if (upgradeType === 'multiTap' && starUpgrade.powerIncrease) {
+        user.tapPower += starUpgrade.powerIncrease;
+      }
     }
 
     await user.save({ session });

@@ -14,36 +14,32 @@ const REFERRAL_REWARD_TIERS = [
 const UPGRADE_SYSTEM = {
   multiTap: {
     points: [1000, 10000, 100000, 1000000], // For levels 1->2, 2->3, 3->4, 4->5
-    powerPerLevel: [1, 2, 3, 4],
+    powerPerLevel: [1, 2, 3, 4, 5], // Added level 5 base power
     starUpgrades: [
-      { level: 5, stars: 10, reward: 100000, powerIncrease: 2 },
-      { level: 6, stars: 20, reward: 500000, powerIncrease: 2 },
-      { level: 7, stars: 50, reward: 1000000, powerIncrease: 2 },
-      { level: 8, stars: 100, reward: 3000000, powerIncrease: 2 }
+      { level: 6, stars: 10, reward: 100000, powerIncrease: 2 },
+      { level: 7, stars: 20, reward: 500000, powerIncrease: 2 },
+      { level: 8, stars: 50, reward: 1000000, powerIncrease: 2 }
     ]
   },
   speed: {
     points: [1000, 10000, 100000, 1000000], // For levels 1->2, 2->3, 3->4, 4->5
     refillTime: [40, 35, 30, 25, 20, 15, 10, 5],
     starUpgrades: [
-      { level: 5, stars: 10, reward: 100000 },
-      { level: 6, stars: 20, reward: 500000 },
-      { level: 7, stars: 50, reward: 1000000 },
-      { level: 8, stars: 100, reward: 3000000 }
+      { level: 6, stars: 10, reward: 100000 },
+      { level: 7, stars: 20, reward: 500000 },
+      { level: 8, stars: 50, reward: 1000000 }
     ]
   },
   energyLimit: {
     points: [1000, 10000, 100000, 1000000], // For levels 1->2, 2->3, 3->4, 4->5
-    capacity: [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000, 7000],
+    capacity: [500, 1000, 1500, 2000, 3000, 4000, 5000, 6000],
     starUpgrades: [
-      { level: 5, stars: 10, reward: 100000 },
-      { level: 6, stars: 20, reward: 500000 },
-      { level: 7, stars: 50, reward: 1000000 },
-      { level: 8, stars: 100, reward: 3000000 }
+      { level: 6, stars: 10, reward: 100000 },
+      { level: 7, stars: 20, reward: 500000 },
+      { level: 8, stars: 50, reward: 1000000 }
     ]
   }
 };
-
 
 const AUTO_TAP_BOT_CONFIG = {
   levels: {
@@ -215,11 +211,11 @@ userSchema.methods = {
   },
 
   getTapPower() {
-    const baseLevel = Math.min(this.multiTapLevel, 4);
+    const baseLevel = Math.min(this.multiTapLevel, 5);
     const basePower = UPGRADE_SYSTEM.multiTap.powerPerLevel[baseLevel - 1];
-    const starBonus = this.multiTapLevel > 4 ? 
+    const starBonus = this.multiTapLevel > 5 ? 
       UPGRADE_SYSTEM.multiTap.starUpgrades
-        .slice(0, this.multiTapLevel - 4)
+        .slice(0, this.multiTapLevel - 5)
         .reduce((sum, upgrade) => sum + upgrade.powerIncrease, 0) : 0;
     return basePower + starBonus;
   },
@@ -228,12 +224,13 @@ userSchema.methods = {
     const level = this[`${type}Level`];
     if (level >= 8) return null;
     
-    if (level < 5) {
-      // Subtract 1 from level to get correct index in points array
+    if (level <= 5) {
+      // Level 1-5 use points
       return { points: UPGRADE_SYSTEM[type].points[level - 1] };
     }
     
-    const starUpgrade = UPGRADE_SYSTEM[type].starUpgrades[level - 5];
+    // Levels 6-8 use stars
+    const starUpgrade = UPGRADE_SYSTEM[type].starUpgrades[level - 6];
     return {
       stars: starUpgrade.stars,
       reward: starUpgrade.reward,

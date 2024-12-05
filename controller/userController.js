@@ -74,6 +74,17 @@ const registerUser = async (req, res) => {
   }
 };
 
+// Helper function to calculate current energy with regeneration
+const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTimeInMinutes) => {
+  const now = Date.now();
+  const timeDiffSeconds = (now - lastTapTime) / 1000;
+  const regenTimeInSeconds = regenTimeInMinutes * 60;
+  const energyPerSecond = maxEnergy / regenTimeInSeconds;
+  const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
+  
+  return Math.min(maxEnergy, currentEnergy + regeneratedEnergy);
+};
+
 const handleTap = async (req, res) => {
   const { userId } = req.body;
 
@@ -82,22 +93,24 @@ const handleTap = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     const now = Date.now();
-    const timeDiffSeconds = (now - user.lastTapTime) / 1000; // Convert to seconds
-    const regenTimeInSeconds = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1] * 60; // Convert minutes to seconds
-    
-    // Calculate energy regenerated during the time difference
+    const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
+    const regenTimeInSeconds = regenTimeInMinutes * 60;
     const energyPerSecond = user.maxEnergy / regenTimeInSeconds;
-    const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
     
-    // Update energy with regeneration, capped at maxEnergy
-    const newEnergy = Math.min(user.maxEnergy, user.energy + regeneratedEnergy);
+    // Calculate current energy with regeneration
+    const currentEnergy = calculateCurrentEnergy(
+      user.lastTapTime,
+      user.energy,
+      user.maxEnergy,
+      regenTimeInMinutes
+    );
 
     // Check if we have enough energy to tap
-    if (newEnergy < 1) {
-      const timeToNextEnergy = (1 - newEnergy) / energyPerSecond;
+    if (currentEnergy < 1) {
+      const timeToNextEnergy = (1 - currentEnergy) / energyPerSecond;
       return res.status(400).json({
         message: 'Not enough energy',
-        currentEnergy: newEnergy,
+        currentEnergy: currentEnergy,
         maxEnergy: user.maxEnergy,
         secondsToNextEnergy: Math.ceil(timeToNextEnergy),
         regenRatePerSecond: energyPerSecond
@@ -108,7 +121,7 @@ const handleTap = async (req, res) => {
     const tapPower = user.getTapPower();
     
     // Update user state
-    user.energy = newEnergy - 1; // Subtract energy cost for tap
+    user.energy = currentEnergy - 1; // Subtract energy cost for tap
     user.lastTapTime = now;
     user.power += tapPower;
     user.statistics.totalTaps += 1;
@@ -133,27 +146,6 @@ const handleTap = async (req, res) => {
   }
 };
 
-// Helper function to calculate current energy with regeneration
-const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTimeInMinutes) => {
-  const now = Date.now();
-  const timeDiffSeconds = (now - lastTapTime) / 1000;
-  const regenTimeInSeconds = regenTimeInMinutes * 60;
-  const energyPerSecond = maxEnergy / regenTimeInSeconds;
-  const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
-  
-  return Math.min(maxEnergy, currentEnergy + regeneratedEnergy);
-};
-
-// Add this to the User schema methods
-userSchema.methods.calculateEnergyRegeneration = function() {
-  const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[this.speedLevel - 1];
-  return calculateCurrentEnergy(
-    this.lastTapTime,
-    this.energy,
-    this.maxEnergy,
-    regenTimeInMinutes
-  );
-};
 
 
 const upgradeLevel = async (req, res) => {
@@ -224,56 +216,6 @@ const upgradeLevel = async (req, res) => {
   }
 };
 
-const monitorUserStatus = async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    const user = await User.findOne({ userId });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    const now = Date.now();
-    const timeDiff = (now - user.lastTapTime) / (60 * 1000);
-    const regenTime = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
-    const regeneratedEnergy = Math.floor(timeDiff * (user.maxEnergy / regenTime));
-    const newEnergy = Math.min(user.maxEnergy, user.energy + regeneratedEnergy);
-
-    if (user.energy !== newEnergy) {
-      user.energy = newEnergy;
-      user.lastTapTime = now;
-      await user.save();
-    }
-
-    res.status(200).json({
-      message: 'Status retrieved successfully',
-      status: {
-        username: user.username,
-        userId: user.userId,
-        energy: user.energy,
-        maxEnergy: user.maxEnergy,
-        tapPower: user.getTapPower(),
-        levels: {
-          multiTap: user.multiTapLevel,
-          speed: user.speedLevel,
-          energyLimit: user.energyLimitLevel
-        },
-        scores: {
-          power: user.power,
-          checkInPoints: user.checkInPoints,
-          referralPoints: user.referralPoints,
-          totalPoints: user.totalPoints
-        },
-        botStatus: user.autoTapBot,
-        timing: {
-          regenTime,
-          lastTapTime: user.lastTapTime,
-          currentTime: now
-        }
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
 
 const activateAutoTapBot = async (req, res) => {
   const { userId, level = 'free' } = req.body;
@@ -372,6 +314,63 @@ const getAutoBotEarnings = async (req, res) => {
     res.status(500).json({ message: 'Failed to claim earnings', error: error.message });
   }
 };
+
+// Update the monitorUserStatus function to use the same calculation
+const monitorUserStatus = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
+    const currentEnergy = calculateCurrentEnergy(
+      user.lastTapTime,
+      user.energy,
+      user.maxEnergy,
+      regenTimeInMinutes
+    );
+
+    if (user.energy !== currentEnergy) {
+      user.energy = currentEnergy;
+      user.lastTapTime = Date.now();
+      await user.save();
+    }
+
+    res.status(200).json({
+      message: 'Status retrieved successfully',
+      status: {
+        username: user.username,
+        userId: user.userId,
+        energy: currentEnergy,
+        maxEnergy: user.maxEnergy,
+        tapPower: user.getTapPower(),
+        levels: {
+          multiTap: user.multiTapLevel,
+          speed: user.speedLevel,
+          energyLimit: user.energyLimitLevel
+        },
+        scores: {
+          power: user.power,
+          checkInPoints: user.checkInPoints,
+          referralPoints: user.referralPoints,
+          totalPoints: user.totalPoints
+        },
+        botStatus: user.autoTapBot,
+        timing: {
+          regenTime: regenTimeInMinutes,
+          lastTapTime: user.lastTapTime,
+          currentTime: Date.now(),
+          energyRegenRate: user.maxEnergy / (regenTimeInMinutes * 60)
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
 
 const performDailyCheckIn = async (req, res) => {
   const { userId } = req.body;

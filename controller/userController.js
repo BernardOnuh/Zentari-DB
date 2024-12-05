@@ -194,6 +194,21 @@ const upgradeLevel = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Initialize statistics if they don't exist
+    if (!user.statistics) {
+      user.statistics = {
+        totalTaps: 0,
+        totalPowerGenerated: 0,
+        longestCheckInStreak: 0,
+        totalCheckIns: 0,
+        highestLevel: {
+          multiTap: user.multiTapLevel || 1,
+          speed: user.speedLevel || 1,
+          energyLimit: user.energyLimitLevel || 1
+        }
+      };
+    }
+
     const currentLevel = user[`${upgradeType}Level`];
     const nextLevel = currentLevel + 1;
 
@@ -229,7 +244,7 @@ const upgradeLevel = async (req, res) => {
         user.tapPower = UPGRADE_SYSTEM.multiTap.powerPerLevel[nextLevel - 1];
       }
     } else {
-      // Star upgrade logic remains the same...
+      // Star upgrade logic
       if (nextLevel < 6) {
         await session.abortTransaction();
         return res.status(400).json({ message: 'Star upgrades only available for levels 6-8' });
@@ -244,6 +259,12 @@ const upgradeLevel = async (req, res) => {
       }
     }
 
+    // Update highest level in statistics
+    user.statistics.highestLevel[upgradeType] = Math.max(
+      user.statistics.highestLevel[upgradeType],
+      nextLevel
+    );
+
     await user.save({ session });
     await session.commitTransaction();
 
@@ -256,7 +277,8 @@ const upgradeLevel = async (req, res) => {
         power: user.power,
         tapPower: user.getTapPower(),
         maxEnergy: user.maxEnergy,
-        regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
+        regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1],
+        level: nextLevel
       }
     });
   } catch (error) {

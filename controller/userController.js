@@ -85,6 +85,7 @@ const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTime
   return Math.min(maxEnergy, currentEnergy + regeneratedEnergy);
 };
 
+
 const handleTap = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -130,9 +131,11 @@ const handleTap = async (req, res) => {
       regenTimeInMinutes
     );
 
-    // Check if we have enough energy to tap
-    if (currentEnergy < 1) {
-      const timeToNextEnergy = (1 - currentEnergy) / energyPerSecond;
+    const tapPower = user.getTapPower();
+    
+    // Check if we have enough energy to tap based on tapPower
+    if (currentEnergy < tapPower) {
+      const timeToNextEnergy = (tapPower - currentEnergy) / energyPerSecond;
       await session.abortTransaction();
       return res.status(400).json({
         success: false,
@@ -140,15 +143,13 @@ const handleTap = async (req, res) => {
         currentEnergy: currentEnergy,
         maxEnergy: user.maxEnergy,
         secondsToNextEnergy: Math.ceil(timeToNextEnergy),
-        regenRatePerSecond: energyPerSecond
+        regenRatePerSecond: energyPerSecond,
+        requiredEnergy: tapPower
       });
     }
 
-    // Perform the tap
-    const tapPower = user.getTapPower();
-    
     // Update user state
-    user.energy = currentEnergy - 1; // Subtract energy cost for tap
+    user.energy = currentEnergy - tapPower; // Subtract energy cost based on tapPower
     user.lastTapTime = now;
     user.power += tapPower;
     user.statistics.totalTaps = (user.statistics.totalTaps || 0) + 1;
@@ -167,7 +168,8 @@ const handleTap = async (req, res) => {
         power: user.power,
         totalTaps: user.statistics.totalTaps,
         powerPerTap: tapPower,
-        energyRegenRate: energyPerSecond // Energy recovered per second
+        energyRegenRate: energyPerSecond,
+        energyCost: tapPower // Added to show energy cost in response
       }
     });
   } catch (error) {

@@ -182,82 +182,62 @@ const handleTap = async (req, res) => {
 
 
 const upgradeLevel = async (req, res) => {
-  const { userId, upgradeType, useStar = false } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
-    const user = await User.findOne({ userId });
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    const { userId, upgradeType, useStar = false } = req.body;
+
+    const user = await User.findOne({ userId }).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: 'User not found' });
+    }
 
     const currentLevel = user[`${upgradeType}Level`];
     const nextLevel = currentLevel + 1;
 
     // Check maximum level
     if (nextLevel > 8) {
+      await session.abortTransaction();
       return res.status(400).json({ message: 'Maximum level reached' });
     }
 
-    // Get upgrade cost
-    const upgradeCost = user.getUpgradeCost(upgradeType);
-    if (!upgradeCost) {
-      return res.status(400).json({ message: 'Invalid upgrade request' });
-    }
-
-    // Handle point-based upgrades (levels 1-5)
-    if (nextLevel <= 5) {
-      if (useStar) {
-        return res.status(400).json({ message: 'Star upgrades only available for levels 6-8' });
-      }
-
-      if (user.totalPoints < upgradeCost.points) {
-        return res.status(400).json({
-          message: 'Insufficient points',
-          required: upgradeCost.points,
-          current: user.totalPoints
-        });
-      }
-
-      user.power -= upgradeCost.points;
-    } else {
-      // Handle star-based upgrades (levels 6-8)
-      if (!useStar) {
-        return res.status(400).json({ message: 'Point upgrades only available for levels 1-5' });
-      }
-
-      if (user.stars < upgradeCost.stars) {
-        return res.status(400).json({ 
-          message: 'Insufficient stars',
-          required: upgradeCost.stars,
-          current: user.stars
-        });
-      }
-
-      user.stars -= upgradeCost.stars;
-      user.power += upgradeCost.reward;
-    }
-
-    // Perform the upgrade
+    // Get the reward for the upgrade
+    const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 6];
+    
+    // Just update the power with reward and increment the level
+    user.power += starUpgrade.reward;
     user[`${upgradeType}Level`] = nextLevel;
-    await user.save();
 
-    // Return updated stats
+    // For multiTap, also update tapPower if applicable
+    if (upgradeType === 'multiTap' && starUpgrade.powerIncrease) {
+      user.tapPower += starUpgrade.powerIncrease;
+    }
+
+    await user.save({ session });
+    await session.commitTransaction();
+
     res.status(200).json({
+      success: true,
       message: 'Upgrade successful',
       upgradeType,
       newLevel: nextLevel,
       stats: {
         power: user.power,
-        stars: user.stars,
         tapPower: user.getTapPower(),
         maxEnergy: user.maxEnergy,
         regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
       }
     });
   } catch (error) {
+    await session.abortTransaction();
     console.error('Upgrade error:', error);
     res.status(500).json({ message: 'Upgrade failed', error: error.message });
+  } finally {
+    session.endSession();
   }
 };
-
 
 const activateAutoTapBot = async (req, res) => {
   const { userId, level = 'free' } = req.body;

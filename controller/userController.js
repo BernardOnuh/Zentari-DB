@@ -82,24 +82,34 @@ const handleTap = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     const now = Date.now();
-    const timeDiff = (now - user.lastTapTime) / (60 * 1000);
-    const regenTime = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
-    const regeneratedEnergy = Math.floor(timeDiff * (user.maxEnergy / regenTime));
+    const timeDiffSeconds = (now - user.lastTapTime) / 1000; // Convert to seconds
+    const regenTimeInSeconds = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1] * 60; // Convert minutes to seconds
+    
+    // Calculate energy regenerated during the time difference
+    const energyPerSecond = user.maxEnergy / regenTimeInSeconds;
+    const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
+    
+    // Update energy with regeneration, capped at maxEnergy
     const newEnergy = Math.min(user.maxEnergy, user.energy + regeneratedEnergy);
 
+    // Check if we have enough energy to tap
     if (newEnergy < 1) {
+      const timeToNextEnergy = (1 - newEnergy) / energyPerSecond;
       return res.status(400).json({
         message: 'Not enough energy',
         currentEnergy: newEnergy,
         maxEnergy: user.maxEnergy,
-        regenRate: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1]
+        secondsToNextEnergy: Math.ceil(timeToNextEnergy),
+        regenRatePerSecond: energyPerSecond
       });
     }
 
-    user.energy = newEnergy - 1;
-    user.lastTapTime = now;
-
+    // Perform the tap
     const tapPower = user.getTapPower();
+    
+    // Update user state
+    user.energy = newEnergy - 1; // Subtract energy cost for tap
+    user.lastTapTime = now;
     user.power += tapPower;
     user.statistics.totalTaps += 1;
     user.statistics.totalPowerGenerated += tapPower;
@@ -114,12 +124,35 @@ const handleTap = async (req, res) => {
         maxEnergy: user.maxEnergy,
         power: user.power,
         totalTaps: user.statistics.totalTaps,
-        powerPerTap: tapPower
+        powerPerTap: tapPower,
+        energyRegenRate: energyPerSecond // Energy recovered per second
       }
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+// Helper function to calculate current energy with regeneration
+const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTimeInMinutes) => {
+  const now = Date.now();
+  const timeDiffSeconds = (now - lastTapTime) / 1000;
+  const regenTimeInSeconds = regenTimeInMinutes * 60;
+  const energyPerSecond = maxEnergy / regenTimeInSeconds;
+  const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
+  
+  return Math.min(maxEnergy, currentEnergy + regeneratedEnergy);
+};
+
+// Add this to the User schema methods
+userSchema.methods.calculateEnergyRegeneration = function() {
+  const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[this.speedLevel - 1];
+  return calculateCurrentEnergy(
+    this.lastTapTime,
+    this.energy,
+    this.maxEnergy,
+    regenTimeInMinutes
+  );
 };
 
 

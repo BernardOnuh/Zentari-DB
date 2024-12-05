@@ -22,7 +22,7 @@ const {
   getReferralLeaderboard,
   getEnergyStatus,
   refillEnergy
-} = require('../controller/userController');
+} = require('../controllers/userController');
 
 const {
   getTasksForUser,
@@ -34,9 +34,7 @@ const {
   createMultipleTasks,
   getCompletedTasks,
   completeTask
-} = require('../controller/taskController');
-
-const taskCompletionController = require('../controller/taskCompletionController');
+} = require('../controllers/taskController');
 
 // ============ USER ROUTES ============
 
@@ -91,7 +89,5 @@ router.get('/tasks/completed/:username', getCompletedTasks);
 
 // Task Completion
 router.post('/complete/:telegramUserId/:taskId', completeTask);
-router.post('/tasks/:taskId/complete/:telegramUserId', taskCompletionController.initiateTaskCompletion);
-router.get('/tasks/:taskId/completion-status/:telegramUserId', taskCompletionController.checkTaskCompletion);
 
 module.exports = router;

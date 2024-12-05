@@ -4,20 +4,22 @@ const mongoose = require('mongoose');
 const CompletedTaskSchema = new mongoose.Schema({
   taskId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Task', // Assuming Task is another model you have defined
-    required: true,
+    ref: 'Task',
+    required: true
   },
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Assuming User is another model you have defined
-    required: true,
+    type: String,  // Changed from ObjectId to String to match telegramUserId
+    required: true
   },
   completedAt: {
     type: Date,
-    default: Date.now,
-  },
-});
+    default: Date.now
+  }
+}, { timestamps: true });
+
+// Add compound index to prevent duplicate completions
+CompletedTaskSchema.index({ taskId: 1, userId: 1 }, { unique: true });
 
 const CompletedTask = mongoose.model('CompletedTask', CompletedTaskSchema);
-
 module.exports = CompletedTask;
+

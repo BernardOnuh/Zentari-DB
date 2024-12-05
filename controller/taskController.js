@@ -1,9 +1,9 @@
-// controllers/taskController.js
 const Task = require('../models/Task');
 const { User } = require('../models/User');
 const CompletedTask = require('../models/CompletedTask');
 const mongoose = require('mongoose');
 
+// Get all tasks
 exports.getAllTasks = async (req, res) => {
   try {
     const tasks = await Task.find({ isActive: true }).sort({ createdAt: -1 });
@@ -13,6 +13,7 @@ exports.getAllTasks = async (req, res) => {
   }
 };
 
+// Create a new task
 exports.createTask = async (req, res) => {
   try {
     const { topic, description, imageUrl, power, expiresAt, completionDelay, link } = req.body;
@@ -42,6 +43,7 @@ exports.createTask = async (req, res) => {
   }
 };
 
+// Create multiple tasks
 exports.createMultipleTasks = async (req, res) => {
   try {
     const tasks = req.body;
@@ -66,6 +68,7 @@ exports.createMultipleTasks = async (req, res) => {
   }
 };
 
+// Get a specific task by ID
 exports.getTaskById = async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -84,6 +87,7 @@ exports.getTaskById = async (req, res) => {
   }
 };
 
+// Update a task
 exports.updateTask = async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -105,6 +109,7 @@ exports.updateTask = async (req, res) => {
   }
 };
 
+// Delete a task
 exports.deleteTask = async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -117,12 +122,16 @@ exports.deleteTask = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
+    // Also delete any completed task records
+    await CompletedTask.deleteMany({ taskId });
+
     res.json({ success: true, message: 'Task deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// Get tasks for user
 exports.getTasksForUser = async (req, res) => {
   try {
     const { username } = req.params;
@@ -131,8 +140,9 @@ exports.getTasksForUser = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Find completed tasks for this user
-    const completedTasks = await CompletedTask.find({ userId: user.userId }).select('taskId');
+    // Find completed tasks using userId (telegram ID)
+    const completedTasks = await CompletedTask.find({ userId: user.userId })
+      .select('taskId');
     const completedTaskIds = completedTasks.map(ct => ct.taskId);
 
     // Get active tasks not completed by the user
@@ -151,6 +161,7 @@ exports.getTasksForUser = async (req, res) => {
   }
 };
 
+// Get completed tasks
 exports.getCompletedTasks = async (req, res) => {
   try {
     const { username } = req.params;
@@ -164,7 +175,7 @@ exports.getCompletedTasks = async (req, res) => {
       .sort({ completedAt: -1 });
 
     const formattedTasks = completedTasks
-      .filter(ct => ct.taskId) // Filter out any null taskIds
+      .filter(ct => ct.taskId)
       .map(ct => ({
         ...ct.taskId.toObject(),
         completedAt: ct.completedAt
@@ -176,6 +187,7 @@ exports.getCompletedTasks = async (req, res) => {
   }
 };
 
+// Complete a task
 exports.completeTask = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -210,9 +222,9 @@ exports.completeTask = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Task has expired' });
     }
 
-    // Check for existing completion
+    // Check for existing completion using telegramUserId
     const existingCompletion = await CompletedTask.findOne({
-      userId: user.userId,
+      userId: telegramUserId,
       taskId: taskId
     }).session(session);
 
@@ -221,9 +233,9 @@ exports.completeTask = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Task already completed by this user' });
     }
 
-    // Create completion record
+    // Create completion record using telegramUserId
     const completedTask = new CompletedTask({
-      userId: user.userId,
+      userId: telegramUserId,
       taskId: taskId,
       completedAt: new Date()
     });

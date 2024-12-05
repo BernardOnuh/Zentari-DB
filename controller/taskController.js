@@ -1,5 +1,5 @@
 const Task = require('../models/Task');
-const User = require('../models/User');
+const { User } = require('../models/User');
 const mongoose = require('mongoose');
 
 // Get all tasks for a specific user (excluding completed ones)
@@ -141,6 +141,7 @@ exports.createMultipleTasks = async (req, res) => {
   }
 };
 
+// Get completed tasks for a user
 exports.getCompletedTasks = async (req, res) => {
   try {
     const { username } = req.params;
@@ -157,6 +158,7 @@ exports.getCompletedTasks = async (req, res) => {
   }
 };
 
+// Complete a task
 exports.completeTask = async (req, res) => {
   try {
     const { telegramUserId, taskId } = req.params;
@@ -178,6 +180,16 @@ exports.completeTask = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
+    // Check if task is active
+    if (!task.isActive) {
+      return res.status(400).json({ success: false, message: 'Task is no longer active' });
+    }
+
+    // Check if the task is expired
+    if (task.expiresAt && new Date() > new Date(task.expiresAt)) {
+      return res.status(400).json({ success: false, message: 'Task has expired' });
+    }
+
     // Check if the task is already completed by the user
     if (user.tasksCompleted.includes(taskId)) {
       return res.status(400).json({ success: false, message: 'Task already completed by this user' });
@@ -192,11 +204,15 @@ exports.completeTask = async (req, res) => {
     // Save the updated user
     await user.save();
 
-    // Optionally, you might want to update the task itself (e.g., decrease available slots)
-    // This depends on your specific requirements
-
-    res.json({ success: true, message: 'Task completed successfully' });
+    res.json({ 
+      success: true, 
+      message: 'Task completed successfully',
+      powerEarned: task.power,
+      newPowerTotal: user.power
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+module.exports = exports;

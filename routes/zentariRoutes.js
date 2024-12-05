@@ -22,7 +22,7 @@ const {
   getReferralLeaderboard,
   getEnergyStatus,
   refillEnergy
-} = require('../controllers/userController');
+} = require('../controller/userController');
 
 const {
   getTasksForUser,
@@ -34,7 +34,7 @@ const {
   createMultipleTasks,
   getCompletedTasks,
   completeTask
-} = require('../controllers/taskController');
+} = require('../controller/taskController');
 
 // ============ USER ROUTES ============
 

@@ -86,11 +86,36 @@ const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTime
 };
 
 const handleTap = async (req, res) => {
-  const { userId } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
-    const user = await User.findOne({ userId });
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    const { userId } = req.body;
+    if (!userId) {
+      await session.abortTransaction();
+      return res.status(400).json({ message: 'userId is required' });
+    }
+
+    const user = await User.findOne({ userId }).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Initialize statistics if they don't exist
+    if (!user.statistics) {
+      user.statistics = {
+        totalTaps: 0,
+        totalPowerGenerated: 0,
+        longestCheckInStreak: 0,
+        totalCheckIns: 0,
+        highestLevel: {
+          multiTap: user.multiTapLevel || 1,
+          speed: user.speedLevel || 1,
+          energyLimit: user.energyLimitLevel || 1
+        }
+      };
+    }
 
     const now = Date.now();
     const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
@@ -108,7 +133,9 @@ const handleTap = async (req, res) => {
     // Check if we have enough energy to tap
     if (currentEnergy < 1) {
       const timeToNextEnergy = (1 - currentEnergy) / energyPerSecond;
+      await session.abortTransaction();
       return res.status(400).json({
+        success: false,
         message: 'Not enough energy',
         currentEnergy: currentEnergy,
         maxEnergy: user.maxEnergy,
@@ -124,12 +151,14 @@ const handleTap = async (req, res) => {
     user.energy = currentEnergy - 1; // Subtract energy cost for tap
     user.lastTapTime = now;
     user.power += tapPower;
-    user.statistics.totalTaps += 1;
-    user.statistics.totalPowerGenerated += tapPower;
+    user.statistics.totalTaps = (user.statistics.totalTaps || 0) + 1;
+    user.statistics.totalPowerGenerated = (user.statistics.totalPowerGenerated || 0) + tapPower;
 
-    await user.save();
+    await user.save({ session });
+    await session.commitTransaction();
 
     res.status(200).json({
+      success: true,
       message: 'Tap successful',
       powerGained: tapPower,
       currentStats: {
@@ -142,7 +171,11 @@ const handleTap = async (req, res) => {
       }
     });
   } catch (error) {
+    await session.abortTransaction();
+    console.error('Tap error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  } finally {
+    session.endSession();
   }
 };
 

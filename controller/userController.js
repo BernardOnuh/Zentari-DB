@@ -158,47 +158,55 @@ const upgradeLevel = async (req, res) => {
     const currentLevel = user[`${upgradeType}Level`];
     const nextLevel = currentLevel + 1;
 
+    // Check maximum level
     if (nextLevel > 8) {
       return res.status(400).json({ message: 'Maximum level reached' });
     }
 
-    if (useStar) {
-      if (nextLevel < 5) {
-        return res.status(400).json({ message: 'Star upgrades only available for levels 5-8' });
+    // Get upgrade cost
+    const upgradeCost = user.getUpgradeCost(upgradeType);
+    if (!upgradeCost) {
+      return res.status(400).json({ message: 'Invalid upgrade request' });
+    }
+
+    // Handle point-based upgrades (levels 1-5)
+    if (nextLevel <= 5) {
+      if (useStar) {
+        return res.status(400).json({ message: 'Star upgrades only available for levels 6-8' });
       }
 
-      const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 5];
-      if (user.stars < starUpgrade.stars) {
-        return res.status(400).json({ 
-          message: 'Insufficient stars',
-          required: starUpgrade.stars,
-          current: user.stars
-        });
-      }
-
-      user.stars -= starUpgrade.stars;
-      user.power += starUpgrade.reward;
-    } else {
-      if (nextLevel > 4) {
-        return res.status(400).json({ message: 'Point upgrades only available for levels 1-4' });
-      }
-
-      // Fix: Use currentLevel - 1 to get the correct point cost
-      const pointCost = UPGRADE_SYSTEM[upgradeType].points[currentLevel - 1];
-      if (user.totalPoints < pointCost) {
+      if (user.totalPoints < upgradeCost.points) {
         return res.status(400).json({
           message: 'Insufficient points',
-          required: pointCost,
+          required: upgradeCost.points,
           current: user.totalPoints
         });
       }
 
-      user.power -= pointCost;
+      user.power -= upgradeCost.points;
+    } else {
+      // Handle star-based upgrades (levels 6-8)
+      if (!useStar) {
+        return res.status(400).json({ message: 'Point upgrades only available for levels 1-5' });
+      }
+
+      if (user.stars < upgradeCost.stars) {
+        return res.status(400).json({ 
+          message: 'Insufficient stars',
+          required: upgradeCost.stars,
+          current: user.stars
+        });
+      }
+
+      user.stars -= upgradeCost.stars;
+      user.power += upgradeCost.reward;
     }
 
+    // Perform the upgrade
     user[`${upgradeType}Level`] = nextLevel;
     await user.save();
 
+    // Return updated stats
     res.status(200).json({
       message: 'Upgrade successful',
       upgradeType,
@@ -212,6 +220,7 @@ const upgradeLevel = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Upgrade error:', error);
     res.status(500).json({ message: 'Upgrade failed', error: error.message });
   }
 };

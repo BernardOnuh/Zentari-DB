@@ -283,20 +283,23 @@ const activateAutoTapBot = async (req, res) => {
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     const now = new Date();
-    
-    // Check if current bot is still mining
-    if (user.autoTapBot?.isActive) {
-      const { details } = calculatePendingPower(user, now.getTime());
-      if (details?.botInfo.isMining) {
-        return res.status(400).json({ 
-          message: 'Auto tap bot is currently active and mining',
-          currentBot: {
-            level: user.autoTapBot.level,
-            timeRemaining: details.botInfo.timeRemaining,
-            miningEndTime: details.botInfo.miningEndTime
+
+    // Check if any bot tier is currently active within its validity period
+    if (user.autoTapBot?.isActive && now < user.autoTapBot.validUntil) {
+      return res.status(400).json({
+        message: 'Another bot tier is currently active',
+        currentBot: {
+          level: user.autoTapBot.level,
+          validUntil: user.autoTapBot.validUntil,
+          timeRemaining: {
+            milliseconds: user.autoTapBot.validUntil - now,
+            hours: Math.floor((user.autoTapBot.validUntil - now) / (1000 * 60 * 60)),
+            minutes: Math.floor((user.autoTapBot.validUntil - now) / (1000 * 60) % 60),
+            seconds: Math.floor((user.autoTapBot.validUntil - now) / 1000 % 60)
           }
-        });
-      }
+        },
+        nextActivationTime: user.autoTapBot.validUntil
+      });
     }
 
     const botConfig = AUTO_TAP_BOT_CONFIG.levels[level];
@@ -320,7 +323,7 @@ const activateAutoTapBot = async (req, res) => {
 
     await user.save();
 
-    // Calculate mining end time based on tier
+    // Calculate initial mining end time based on tier
     const miningEndTime = level === 'free' ? 
       new Date(now.getTime() + (2 * 60 * 60 * 1000)) : // 2 hours for free
       new Date(now.setHours(23, 59, 59, 999)); // Until midnight for paid tiers

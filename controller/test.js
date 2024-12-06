@@ -334,61 +334,74 @@ const activateAutoTapBot = async (req, res) => {
 };
 
 const getAutoBotEarnings = async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    const user = await User.findOne({ userId });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    if (!user.autoTapBot?.isActive) {
-      return res.status(400).json({ message: 'Auto tap bot is not active' });
-    }
-
-    const now = Date.now();
-    const lastClaimed = user.autoTapBot.lastClaimed || user.autoTapBot.validUntil;
-    const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot.level];
-    const timeElapsed = Math.min(
-      now - lastClaimed,
-      config.duration * 60 * 60 * 1000
-    );
-
-    const tapsPerSecond = user.speedLevel;
-    const totalTaps = Math.floor((timeElapsed / 1000) * tapsPerSecond);
-    const tapPower = user.getTapPower();
-    const powerGained = totalTaps * tapPower;
-    const energyUsed = Math.min(totalTaps, user.maxEnergy);
-
-    user.power += powerGained;
-    user.energy = Math.max(0, user.maxEnergy - energyUsed);
-    user.autoTapBot.lastClaimed = now;
-    user.statistics.totalTaps += totalTaps;
-    user.statistics.totalPowerGenerated += powerGained;
-
-    await user.save();
-
-    res.status(200).json({
-      message: 'Auto bot earnings claimed successfully',
-      earnings: {
-        timeElapsed: timeElapsed / 1000,
-        totalTaps,
-        powerGained,
-        energyUsed,
-        currentStats: {
-          energy: user.energy,
-          power: user.power,
-          totalTaps: user.statistics.totalTaps
-        },
-        botStatus: {
-          level: user.autoTapBot.level,
-          validUntil: user.autoTapBot.validUntil,
-          duration: config.duration
-        }
+    const { userId } = req.params;
+  
+    try {
+      const user = await User.findOne({ userId });
+      if (!user) return res.status(404).json({ message: 'User not found' });
+  
+      if (!user.autoTapBot?.isActive) {
+        return res.status(400).json({ message: 'Auto tap bot is not active' });
       }
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to claim earnings', error: error.message });
-  }
-};
+  
+      // Initialize statistics if not present
+      if (!user.statistics) {
+        user.statistics = {
+          totalTaps: 0,
+          totalPowerGenerated: 0,
+          longestCheckInStreak: 0,
+          totalCheckIns: 0,
+          highestLevel: {
+            multiTap: user.multiTapLevel || 1,
+            speed: user.speedLevel || 1,
+            energyLimit: user.energyLimitLevel || 1
+          }
+        };
+      }
+  
+      const { pendingPower, details } = calculatePendingPower(user);
+  
+      if (pendingPower <= 0) {
+        return res.status(400).json({
+          message: 'No earnings to claim',
+          details: {
+            ...details?.botInfo,
+            remainingTime: details?.botInfo.remainingTime
+          }
+        });
+      }
+  
+      user.power += pendingPower;
+      user.energy = Math.max(0, user.maxEnergy - details.energyUsed);
+      user.autoTapBot.lastClaimed = new Date();
+      user.statistics.totalTaps += details.totalTaps;
+      user.statistics.totalPowerGenerated += pendingPower;
+  
+      await user.save();
+  
+      res.status(200).json({
+        message: 'Auto bot earnings claimed successfully',
+        earnings: {
+          timeElapsed: details.timeElapsed,
+          totalTaps: details.totalTaps,
+          powerGained: pendingPower,
+          energyUsed: details.energyUsed,
+          currentStats: {
+            energy: user.energy,
+            power: user.power,
+            totalTaps: user.statistics.totalTaps
+          },
+          botStatus: {
+            ...details.botInfo,
+            miningComplete: !details.botInfo.isMining,
+            remainingTime: details.botInfo.remainingTime
+          }
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Failed to claim earnings', error: error.message });
+    }
+  };
 
 // Update the monitorUserStatus function to use the same calculation
 const monitorUserStatus = async (req, res) => {

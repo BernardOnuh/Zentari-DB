@@ -419,7 +419,7 @@ const upgradeLevel = async (req, res) => {
     if (!user) {
       await session.abortTransaction();
       return res.status(404).json({ message: 'User not found' });
-    }za
+    }
 
     // Initialize statistics if they don't exist
     if (!user.statistics) {

@@ -271,19 +271,6 @@ const activateAutoTapBot = async (req, res) => {
       });
     }
 
-    // Check star cost for paid tiers
-    if (level !== 'free') {
-      if (user.stars < botConfig.starCost) {
-        return res.status(400).json({ 
-          message: 'Insufficient stars',
-          required: botConfig.starCost,
-          current: user.stars,
-          missing: botConfig.starCost - user.stars
-        });
-      }
-      user.stars -= botConfig.starCost;
-    }
-
     // Claim any pending rewards from previous bot
     if (user.autoTapBot?.isActive) {
       const { pendingPower, details } = calculatePendingPower(user, now.getTime());
@@ -329,11 +316,6 @@ const activateAutoTapBot = async (req, res) => {
             seconds: Math.floor(remainingMillis / 1000)
           }
         }
-      },
-      userStats: {
-        stars: user.stars,
-        power: user.power,
-        totalTaps: user.statistics.totalTaps
       }
     });
   } catch (error) {

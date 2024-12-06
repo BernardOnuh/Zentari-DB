@@ -811,6 +811,63 @@ const refillEnergy = async (req, res) => {
   }
 };
 
+
+// Update the monitorUserStatus function to use the same calculation
+const monitorUserStatus = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
+    const currentEnergy = calculateCurrentEnergy(
+      user.lastTapTime,
+      user.energy,
+      user.maxEnergy,
+      regenTimeInMinutes
+    );
+
+    if (user.energy !== currentEnergy) {
+      user.energy = currentEnergy;
+      user.lastTapTime = Date.now();
+      await user.save();
+    }
+
+    res.status(200).json({
+      message: 'Status retrieved successfully',
+      status: {
+        username: user.username,
+        userId: user.userId,
+        energy: currentEnergy,
+        maxEnergy: user.maxEnergy,
+        tapPower: user.getTapPower(),
+        levels: {
+          multiTap: user.multiTapLevel,
+          speed: user.speedLevel,
+          energyLimit: user.energyLimitLevel
+        },
+        scores: {
+          power: user.power,
+          checkInPoints: user.checkInPoints,
+          referralPoints: user.referralPoints,
+          totalPoints: user.totalPoints
+        },
+        botStatus: user.autoTapBot,
+        timing: {
+          regenTime: regenTimeInMinutes,
+          lastTapTime: user.lastTapTime,
+          currentTime: Date.now(),
+          energyRegenRate: user.maxEnergy / (regenTimeInMinutes * 60)
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
 // Export all controller functions
 module.exports = {
   registerUser,

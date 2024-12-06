@@ -14,20 +14,30 @@ const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTime
 };
 
 const calculatePendingPower = (user, now = Date.now()) => {
-  const lastClaimed = user.autoTapBot?.lastClaimed || user.autoTapBot?.validUntil;
-  const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot?.level || 'free'];
-  const botStartTime = user.autoTapBot?.validUntil - (config.duration * 60 * 60 * 1000);
-  
-  // Calculate the actual mining end time
-  const miningEndTime = Math.min(
-    botStartTime + (config.duration * 60 * 60 * 1000),
-    now
-  );
+  if (!user.autoTapBot?.isActive) {
+    return { pendingPower: 0, details: null };
+  }
 
-  // Only calculate power for the duration the bot was actually mining
+  const lastClaimed = user.autoTapBot.lastClaimed;
+  const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot.level];
+  
+  // Calculate the mining start and end times
+  const activationTime = new Date(user.autoTapBot.validUntil).getTime() - 
+    (config.validityDays * 24 * 60 * 60 * 1000);
+  const miningEndTime = activationTime + (config.duration * 60 * 60 * 1000);
+
+  // Calculate remaining time
+  const remainingMillis = Math.max(0, miningEndTime - now);
+  const remainingMinutes = Math.floor(remainingMillis / (60 * 1000));
+  const remainingSeconds = Math.floor((remainingMillis % (60 * 1000)) / 1000);
+
+  // If we're past the mining duration, use mining end time instead of current time
+  const effectiveNow = Math.min(now, miningEndTime);
+  
+  // Only calculate for time within the mining period
   const timeElapsed = Math.max(0, Math.min(
-    miningEndTime - lastClaimed,
-    config.duration * 60 * 60 * 1000
+    effectiveNow - lastClaimed,
+    miningEndTime - lastClaimed
   ));
 
   const tapsPerSecond = user.speedLevel;
@@ -42,12 +52,20 @@ const calculatePendingPower = (user, now = Date.now()) => {
       powerPerTap: tapPower,
       energyUsed: Math.min(totalTaps, user.maxEnergy),
       botInfo: {
-        level: user.autoTapBot?.level || 'free',
-        validUntil: user.autoTapBot?.validUntil,
+        level: user.autoTapBot.level,
+        validUntil: user.autoTapBot.validUntil,
         lastClaimed: lastClaimed,
         duration: config.duration,
-        isMining: now < user.autoTapBot?.validUntil && 
-                 now >= botStartTime
+        isMining: now <= miningEndTime && now >= activationTime,
+        miningEndTime: new Date(miningEndTime),
+        remainingTime: {
+          minutes: remainingMinutes,
+          seconds: remainingSeconds,
+          total: {
+            minutes: Math.floor(remainingMillis / (60 * 1000)),
+            seconds: Math.floor(remainingMillis / 1000)
+          }
+        }
       }
     }
   };
@@ -439,6 +457,9 @@ const getAutoBotStatus = async (req, res) => {
         lastClaimed: user.autoTapBot.lastClaimed,
         pendingPower,
         canClaim: pendingPower > 0,
+        remainingTime: details.botInfo.remainingTime,
+        isMining: details.botInfo.isMining,
+        miningEndTime: details.botInfo.miningEndTime,
         ...details
       }
     });
@@ -463,7 +484,10 @@ const getAutoBotEarnings = async (req, res) => {
     if (pendingPower <= 0) {
       return res.status(400).json({
         message: 'No earnings to claim',
-        details: details?.botInfo
+        details: {
+          ...details?.botInfo,
+          remainingTime: details?.botInfo.remainingTime
+        }
       });
     }
 
@@ -489,8 +513,8 @@ const getAutoBotEarnings = async (req, res) => {
         },
         botStatus: {
           ...details.botInfo,
-          miningComplete: !details.botInfo.isMining && 
-            new Date() >= details.botInfo.miningEndTime
+          miningComplete: !details.botInfo.isMining,
+          remainingTime: details.botInfo.remainingTime
         }
       }
     });

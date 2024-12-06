@@ -1,6 +1,49 @@
 const { User, UPGRADE_SYSTEM, AUTO_TAP_BOT_CONFIG, REFERRAL_REWARD_TIERS } = require('../models/User');
 const mongoose = require('mongoose');
 
+// Helper Functions
+
+const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTimeInMinutes) => {
+  const now = Date.now();
+  const timeDiffSeconds = (now - lastTapTime) / 1000;
+  const regenTimeInSeconds = regenTimeInMinutes * 60;
+  const energyPerSecond = maxEnergy / regenTimeInSeconds;
+  const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
+  
+  return Math.min(maxEnergy, currentEnergy + regeneratedEnergy);
+};
+
+const calculatePendingPower = (user, now = Date.now()) => {
+  const lastClaimed = user.autoTapBot?.lastClaimed || user.autoTapBot?.validUntil;
+  const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot?.level || 'free'];
+  
+  const timeElapsed = Math.min(
+    now - lastClaimed,
+    config.duration * 60 * 60 * 1000
+  );
+
+  const tapsPerSecond = user.speedLevel;
+  const totalTaps = Math.floor((timeElapsed / 1000) * tapsPerSecond);
+  const tapPower = user.getTapPower();
+  
+  return {
+    pendingPower: totalTaps * tapPower,
+    details: {
+      timeElapsed: timeElapsed / 1000,
+      totalTaps,
+      powerPerTap: tapPower,
+      energyUsed: Math.min(totalTaps, user.maxEnergy),
+      botInfo: {
+        level: user.autoTapBot?.level || 'free',
+        validUntil: user.autoTapBot?.validUntil,
+        lastClaimed: lastClaimed,
+        duration: config.duration
+      }
+    }
+  };
+};
+
+// User Registration
 const registerUser = async (req, res) => {
   try {
     const { username, userId, referral } = req.body;
@@ -74,18 +117,7 @@ const registerUser = async (req, res) => {
   }
 };
 
-// Helper function to calculate current energy with regeneration
-const calculateCurrentEnergy = (lastTapTime, currentEnergy, maxEnergy, regenTimeInMinutes) => {
-  const now = Date.now();
-  const timeDiffSeconds = (now - lastTapTime) / 1000;
-  const regenTimeInSeconds = regenTimeInMinutes * 60;
-  const energyPerSecond = maxEnergy / regenTimeInSeconds;
-  const regeneratedEnergy = timeDiffSeconds * energyPerSecond;
-  
-  return Math.min(maxEnergy, currentEnergy + regeneratedEnergy);
-};
-
-
+// Game Mechanics
 const handleTap = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -103,7 +135,6 @@ const handleTap = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Initialize statistics if they don't exist
     if (!user.statistics) {
       user.statistics = {
         totalTaps: 0,
@@ -123,7 +154,6 @@ const handleTap = async (req, res) => {
     const regenTimeInSeconds = regenTimeInMinutes * 60;
     const energyPerSecond = user.maxEnergy / regenTimeInSeconds;
     
-    // Calculate current energy with regeneration
     const currentEnergy = calculateCurrentEnergy(
       user.lastTapTime,
       user.energy,
@@ -133,7 +163,6 @@ const handleTap = async (req, res) => {
 
     const tapPower = user.getTapPower();
     
-    // Check if we have enough energy to tap based on tapPower
     if (currentEnergy < tapPower) {
       const timeToNextEnergy = (tapPower - currentEnergy) / energyPerSecond;
       await session.abortTransaction();
@@ -148,8 +177,7 @@ const handleTap = async (req, res) => {
       });
     }
 
-    // Update user state
-    user.energy = currentEnergy - tapPower; // Subtract energy cost based on tapPower
+    user.energy = currentEnergy - tapPower;
     user.lastTapTime = now;
     user.power += tapPower;
     user.statistics.totalTaps = (user.statistics.totalTaps || 0) + 1;
@@ -169,7 +197,7 @@ const handleTap = async (req, res) => {
         totalTaps: user.statistics.totalTaps,
         powerPerTap: tapPower,
         energyRegenRate: energyPerSecond,
-        energyCost: tapPower // Added to show energy cost in response
+        energyCost: tapPower
       }
     });
   } catch (error) {
@@ -181,123 +209,17 @@ const handleTap = async (req, res) => {
   }
 };
 
-
-
-const upgradeLevel = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { userId, upgradeType, useStar = false } = req.body;
-
-    const user = await User.findOne({ userId }).session(session);
-    if (!user) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Initialize statistics if they don't exist
-    if (!user.statistics) {
-      user.statistics = {
-        totalTaps: 0,
-        totalPowerGenerated: 0,
-        longestCheckInStreak: 0,
-        totalCheckIns: 0,
-        highestLevel: {
-          multiTap: user.multiTapLevel || 1,
-          speed: user.speedLevel || 1,
-          energyLimit: user.energyLimitLevel || 1
-        }
-      };
-    }
-
-    const currentLevel = user[`${upgradeType}Level`];
-    const nextLevel = currentLevel + 1;
-
-    // Check maximum level
-    if (nextLevel > 8) {
-      await session.abortTransaction();
-      return res.status(400).json({ message: 'Maximum level reached' });
-    }
-
-    if (!useStar) {
-      // Point upgrade (levels 1-5)
-      if (nextLevel > 5) {
-        await session.abortTransaction();
-        return res.status(400).json({ message: 'Point upgrades only available for levels 1-5' });
-      }
-
-      const pointCost = UPGRADE_SYSTEM[upgradeType].points[currentLevel - 1];
-      if (user.power < pointCost) {
-        await session.abortTransaction();
-        return res.status(400).json({
-          message: 'Insufficient points',
-          required: pointCost,
-          current: user.power
-        });
-      }
-
-      // Deduct points and update level
-      user.power -= pointCost;
-      user[`${upgradeType}Level`] = nextLevel;
-
-      // Update tapPower for multiTap upgrades
-      if (upgradeType === 'multiTap') {
-        user.tapPower = UPGRADE_SYSTEM.multiTap.powerPerLevel[nextLevel - 1];
-      }
-    } else {
-      // Star upgrade logic
-      if (nextLevel < 6) {
-        await session.abortTransaction();
-        return res.status(400).json({ message: 'Star upgrades only available for levels 6-8' });
-      }
-
-      const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 6];
-      user.power += starUpgrade.reward;
-      user[`${upgradeType}Level`] = nextLevel;
-
-      if (upgradeType === 'multiTap' && starUpgrade.powerIncrease) {
-        user.tapPower += starUpgrade.powerIncrease;
-      }
-    }
-
-    // Update highest level in statistics
-    user.statistics.highestLevel[upgradeType] = Math.max(
-      user.statistics.highestLevel[upgradeType],
-      nextLevel
-    );
-
-    await user.save({ session });
-    await session.commitTransaction();
-
-    res.status(200).json({
-      success: true,
-      message: 'Upgrade successful',
-      upgradeType,
-      newLevel: nextLevel,
-      stats: {
-        power: user.power,
-        tapPower: user.getTapPower(),
-        maxEnergy: user.maxEnergy,
-        regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1],
-        level: nextLevel
-      }
-    });
-  } catch (error) {
-    await session.abortTransaction();
-    console.error('Upgrade error:', error);
-    res.status(500).json({ message: 'Upgrade failed', error: error.message });
-  } finally {
-    session.endSession();
-  }
-};
-
+// Auto Bot Management
 const activateAutoTapBot = async (req, res) => {
-  const { userId, level = 'free' } = req.body;
+  const { userId, level = 'free', paymentValidated = false } = req.body;
 
   try {
     const user = await User.findOne({ userId });
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (level !== 'free' && !paymentValidated) {
+      return res.status(400).json({ message: 'Payment not validated' });
+    }
 
     const botConfig = AUTO_TAP_BOT_CONFIG.levels[level];
     if (!botConfig) return res.status(400).json({ message: 'Invalid bot level' });
@@ -311,6 +233,15 @@ const activateAutoTapBot = async (req, res) => {
         });
       }
       user.stars -= botConfig.starCost;
+    }
+
+    if (user.autoTapBot?.isActive) {
+      const { pendingPower, details } = calculatePendingPower(user);
+      if (pendingPower > 0) {
+        user.power += pendingPower;
+        user.statistics.totalTaps += details.totalTaps;
+        user.statistics.totalPowerGenerated += pendingPower;
+      }
     }
 
     const now = new Date();
@@ -333,6 +264,42 @@ const activateAutoTapBot = async (req, res) => {
   }
 };
 
+const getAutoBotStatus = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.autoTapBot?.isActive) {
+      return res.status(200).json({
+        isActive: false,
+        availableLevels: Object.entries(AUTO_TAP_BOT_CONFIG.levels).map(([level, config]) => ({
+          level,
+          starCost: config.starCost,
+          duration: config.duration,
+          validityDays: config.validityDays
+        }))
+      });
+    }
+
+    const { pendingPower, details } = calculatePendingPower(user);
+
+    res.status(200).json({
+      botStatus: {
+        isActive: true,
+        level: user.autoTapBot.level,
+        validUntil: user.autoTapBot.validUntil,
+        lastClaimed: user.autoTapBot.lastClaimed,
+        pendingPower,
+        canClaim: pendingPower > 0,
+        ...details
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 const getAutoBotEarnings = async (req, res) => {
   const { userId } = req.params;
 
@@ -344,45 +311,36 @@ const getAutoBotEarnings = async (req, res) => {
       return res.status(400).json({ message: 'Auto tap bot is not active' });
     }
 
-    const now = Date.now();
-    const lastClaimed = user.autoTapBot.lastClaimed || user.autoTapBot.validUntil;
-    const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot.level];
-    const timeElapsed = Math.min(
-      now - lastClaimed,
-      config.duration * 60 * 60 * 1000
-    );
+    const { pendingPower, details } = calculatePendingPower(user);
 
-    const tapsPerSecond = user.speedLevel;
-    const totalTaps = Math.floor((timeElapsed / 1000) * tapsPerSecond);
-    const tapPower = user.getTapPower();
-    const powerGained = totalTaps * tapPower;
-    const energyUsed = Math.min(totalTaps, user.maxEnergy);
+    if (pendingPower <= 0) {
+      return res.status(400).json({
+        message: 'No earnings to claim',
+        details: details.botInfo
+      });
+    }
 
-    user.power += powerGained;
-    user.energy = Math.max(0, user.maxEnergy - energyUsed);
-    user.autoTapBot.lastClaimed = now;
-    user.statistics.totalTaps += totalTaps;
-    user.statistics.totalPowerGenerated += powerGained;
+    user.power += pendingPower;
+    user.energy = Math.max(0, user.maxEnergy - details.energyUsed);
+    user.autoTapBot.lastClaimed = new Date();
+    user.statistics.totalTaps += details.totalTaps;
+    user.statistics.totalPowerGenerated += pendingPower;
 
     await user.save();
 
     res.status(200).json({
       message: 'Auto bot earnings claimed successfully',
       earnings: {
-        timeElapsed: timeElapsed / 1000,
-        totalTaps,
-        powerGained,
-        energyUsed,
+        timeElapsed: details.timeElapsed,
+        totalTaps: details.totalTaps,
+        powerGained: pendingPower,
+        energyUsed: details.energyUsed,
         currentStats: {
           energy: user.energy,
           power: user.power,
           totalTaps: user.statistics.totalTaps
         },
-        botStatus: {
-          level: user.autoTapBot.level,
-          validUntil: user.autoTapBot.validUntil,
-          duration: config.duration
-        }
+        botStatus: details.botInfo
       }
     });
   } catch (error) {
@@ -390,63 +348,32 @@ const getAutoBotEarnings = async (req, res) => {
   }
 };
 
-// Update the monitorUserStatus function to use the same calculation
-const monitorUserStatus = async (req, res) => {
+const getPendingAutoBotEarnings = async (req, res) => {
   const { userId } = req.params;
 
   try {
     const user = await User.findOne({ userId });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    const regenTimeInMinutes = UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1];
-    const currentEnergy = calculateCurrentEnergy(
-      user.lastTapTime,
-      user.energy,
-      user.maxEnergy,
-      regenTimeInMinutes
-    );
-
-    if (user.energy !== currentEnergy) {
-      user.energy = currentEnergy;
-      user.lastTapTime = Date.now();
-      await user.save();
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
+    if (!user.autoTapBot?.isActive) {
+      return res.status(400).json({ message: 'Auto tap bot not active' });
+    }
+
+    const { pendingPower, details } = calculatePendingPower(user);
+
     res.status(200).json({
-      message: 'Status retrieved successfully',
-      status: {
-        username: user.username,
-        userId: user.userId,
-        energy: currentEnergy,
-        maxEnergy: user.maxEnergy,
-        tapPower: user.getTapPower(),
-        levels: {
-          multiTap: user.multiTapLevel,
-          speed: user.speedLevel,
-          energyLimit: user.energyLimitLevel
-        },
-        scores: {
-          power: user.power,
-          checkInPoints: user.checkInPoints,
-          referralPoints: user.referralPoints,
-          totalPoints: user.totalPoints
-        },
-        botStatus: user.autoTapBot,
-        timing: {
-          regenTime: regenTimeInMinutes,
-          lastTapTime: user.lastTapTime,
-          currentTime: Date.now(),
-          energyRegenRate: user.maxEnergy / (regenTimeInMinutes * 60)
-        }
-      }
+      pendingPower,
+      canClaim: pendingPower > 0,
+      ...details
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-
-
+// Check-in System
 const performDailyCheckIn = async (req, res) => {
   const { userId } = req.body;
 
@@ -528,7 +455,6 @@ const getCheckInStatus = async (req, res) => {
       }
     }
 
-    res.status(200).json
     res.status(200).json({
       status: {
         lastCheckIn: user.lastCheckIn,
@@ -547,6 +473,7 @@ const getCheckInStatus = async (req, res) => {
   }
 };
 
+// Referral System
 const getReferralDetails = async (req, res) => {
   const { userId } = req.params;
 
@@ -665,29 +592,11 @@ const claimReferralReward = async (req, res) => {
   }
 };
 
+// User Information
 const getAllUsers = async (req, res) => {
   try {
     const users = await User.find({}, 'username userId power');
     res.status(200).json({ users });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-const getAutoBotStatus = async (req, res) => {
-  const { userId } = req.params;
-  try {
-    const user = await User.findOne({ userId });
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    res.status(200).json({
-      botStatus: {
-        isActive: user.autoTapBot?.isActive || false,
-        level: user.autoTapBot?.level || 'free',
-        validUntil: user.autoTapBot?.validUntil,
-        lastClaimed: user.autoTapBot?.lastClaimed
-      }
-    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -724,6 +633,7 @@ const getUserAchievements = async (req, res) => {
   }
 };
 
+// Leaderboards
 const getPowerLeaderboard = async (req, res) => {
   try {
     const users = await User.find({}, 'username power')
@@ -753,6 +663,7 @@ const getReferralLeaderboard = async (req, res) => {
   }
 };
 
+// Energy Management
 const getEnergyStatus = async (req, res) => {
   const { userId } = req.params;
   try {
@@ -791,6 +702,7 @@ const refillEnergy = async (req, res) => {
   }
 };
 
+// Export all controller functions
 module.exports = {
   registerUser,
   handleTap,
@@ -798,13 +710,14 @@ module.exports = {
   monitorUserStatus,
   activateAutoTapBot,
   getAutoBotEarnings,
+  getPendingAutoBotEarnings,
+  getAutoBotStatus,
   performDailyCheckIn,
   getCheckInStatus,
   getReferralDetails,
   getReferralRewardStatus,
   claimReferralReward,
   getAllUsers,
-  getAutoBotStatus,
   getUserStatistics,
   getUserAchievements,
   getPowerLeaderboard,

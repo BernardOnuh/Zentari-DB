@@ -9,6 +9,7 @@ const {
   monitorUserStatus,
   activateAutoTapBot,
   getAutoBotEarnings,
+  getPendingAutoBotEarnings,
   getAutoBotStatus,
   performDailyCheckIn,
   getCheckInStatus,
@@ -54,7 +55,8 @@ router.post('/energy/refill/:userId', refillEnergy);
 // Auto Tap Bot Management
 router.post('/autobot/activate', activateAutoTapBot);
 router.get('/autobot/status/:userId', getAutoBotStatus);
-router.get('/autobot/earnings/:userId', getAutoBotEarnings);
+router.get('/autobot/pending/:userId', getPendingAutoBotEarnings);
+router.post('/autobot/claim/:userId', getAutoBotEarnings);
 
 // Check-in System
 router.post('/check-in', performDailyCheckIn);

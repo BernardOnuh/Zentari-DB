@@ -264,6 +264,115 @@ const activateAutoTapBot = async (req, res) => {
   }
 };
 
+const upgradeLevel = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { userId, upgradeType, useStar = false } = req.body;
+
+    const user = await User.findOne({ userId }).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: 'User not found' });
+    }za
+
+    // Initialize statistics if they don't exist
+    if (!user.statistics) {
+      user.statistics = {
+        totalTaps: 0,
+        totalPowerGenerated: 0,
+        longestCheckInStreak: 0,
+        totalCheckIns: 0,
+        highestLevel: {
+          multiTap: user.multiTapLevel || 1,
+          speed: user.speedLevel || 1,
+          energyLimit: user.energyLimitLevel || 1
+        }
+      };
+    }
+
+    const currentLevel = user[`${upgradeType}Level`];
+    const nextLevel = currentLevel + 1;
+
+    // Check maximum level
+    if (nextLevel > 8) {
+      await session.abortTransaction();
+      return res.status(400).json({ message: 'Maximum level reached' });
+    }
+
+    if (!useStar) {
+      // Point upgrade (levels 1-5)
+      if (nextLevel > 5) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: 'Point upgrades only available for levels 1-5' });
+      }
+
+      const pointCost = UPGRADE_SYSTEM[upgradeType].points[currentLevel - 1];
+      if (user.power < pointCost) {
+        await session.abortTransaction();
+        return res.status(400).json({
+          message: 'Insufficient points',
+          required: pointCost,
+          current: user.power
+        });
+      }
+
+      // Deduct points and update level
+      user.power -= pointCost;
+      user[`${upgradeType}Level`] = nextLevel;
+
+      // Update tapPower for multiTap upgrades
+      if (upgradeType === 'multiTap') {
+        user.tapPower = UPGRADE_SYSTEM.multiTap.powerPerLevel[nextLevel - 1];
+      }
+    } else {
+      // Star upgrade logic
+      if (nextLevel < 6) {
+        await session.abortTransaction();
+        return res.status(400).json({ message: 'Star upgrades only available for levels 6-8' });
+      }
+
+      const starUpgrade = UPGRADE_SYSTEM[upgradeType].starUpgrades[nextLevel - 6];
+      user.power += starUpgrade.reward;
+      user[`${upgradeType}Level`] = nextLevel;
+
+      if (upgradeType === 'multiTap' && starUpgrade.powerIncrease) {
+        user.tapPower += starUpgrade.powerIncrease;
+      }
+    }
+
+    // Update highest level in statistics
+    user.statistics.highestLevel[upgradeType] = Math.max(
+      user.statistics.highestLevel[upgradeType],
+      nextLevel
+    );
+
+    await user.save({ session });
+    await session.commitTransaction();
+
+    res.status(200).json({
+      success: true,
+      message: 'Upgrade successful',
+      upgradeType,
+      newLevel: nextLevel,
+      stats: {
+        power: user.power,
+        tapPower: user.getTapPower(),
+        maxEnergy: user.maxEnergy,
+        regenTime: UPGRADE_SYSTEM.speed.refillTime[user.speedLevel - 1],
+        level: nextLevel
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Upgrade error:', error);
+    res.status(500).json({ message: 'Upgrade failed', error: error.message });
+  } finally {
+    session.endSession();
+  }
+};
+
 const getAutoBotStatus = async (req, res) => {
   const { userId } = req.params;
   try {

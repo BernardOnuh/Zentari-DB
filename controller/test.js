@@ -811,4 +811,4 @@ module.exports = {
   getReferralLeaderboard,
   getEnergyStatus,
   refillEnergy
-};
+}

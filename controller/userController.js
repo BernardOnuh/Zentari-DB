@@ -220,7 +220,7 @@ const handleTap = async (req, res) => {
   }
 };
 
-// Auto Bot Management
+
 const activateAutoTapBot = async (req, res) => {
   const { userId, level = 'free', paymentValidated = false } = req.body;
 
@@ -228,19 +228,18 @@ const activateAutoTapBot = async (req, res) => {
     const user = await User.findOne({ userId });
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    const now = new Date();
+    
+    // Check if current bot is still mining
     if (user.autoTapBot?.isActive) {
-      const now = Date.now();
-      const currentBotConfig = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot.level];
-      const botStartTime = user.autoTapBot.validUntil - (currentBotConfig.duration * 60 * 60 * 1000);
-      
-      // Check if current bot is still mining
-      if (now < user.autoTapBot.validUntil && now >= botStartTime) {
+      const { details } = calculatePendingPower(user, now.getTime());
+      if (details?.botInfo.isMining) {
         return res.status(400).json({ 
           message: 'Auto tap bot is currently active and mining',
           currentBot: {
             level: user.autoTapBot.level,
-            validUntil: user.autoTapBot.validUntil,
-            timeRemaining: (user.autoTapBot.validUntil - now) / (60 * 60 * 1000)
+            timeRemaining: details.botInfo.timeRemaining,
+            miningEndTime: details.botInfo.miningEndTime
           }
         });
       }
@@ -264,9 +263,9 @@ const activateAutoTapBot = async (req, res) => {
       user.stars -= botConfig.starCost;
     }
 
-    // If there's a previous bot with unclaimed rewards, claim them first
+    // Claim any pending rewards from previous bot
     if (user.autoTapBot?.isActive) {
-      const { pendingPower, details } = calculatePendingPower(user);
+      const { pendingPower, details } = calculatePendingPower(user, now.getTime());
       if (pendingPower > 0) {
         user.power += pendingPower;
         user.statistics.totalTaps += details.totalTaps;
@@ -274,7 +273,7 @@ const activateAutoTapBot = async (req, res) => {
       }
     }
 
-    const now = new Date();
+    // Set up new bot with proper duration tracking
     user.autoTapBot = {
       level,
       validUntil: new Date(now.getTime() + (botConfig.validityDays * 24 * 60 * 60 * 1000)),
@@ -284,12 +283,17 @@ const activateAutoTapBot = async (req, res) => {
 
     await user.save();
 
+    // Calculate actual mining end time
+    const miningEndTime = new Date(now.getTime() + (botConfig.duration * 60 * 60 * 1000));
+
     res.status(200).json({
       message: 'Auto tap bot activated successfully',
       botStatus: {
         ...user.autoTapBot.toObject(),
         config: botConfig,
-        miningDuration: botConfig.duration * 60 * 60 * 1000
+        miningDuration: botConfig.duration * 60 * 60 * 1000,
+        miningEndTime,
+        timeRemaining: botConfig.duration * 60 // in minutes
       },
       stars: user.stars
     });
@@ -459,7 +463,7 @@ const getAutoBotEarnings = async (req, res) => {
     if (pendingPower <= 0) {
       return res.status(400).json({
         message: 'No earnings to claim',
-        details: details.botInfo
+        details: details?.botInfo
       });
     }
 
@@ -483,13 +487,18 @@ const getAutoBotEarnings = async (req, res) => {
           power: user.power,
           totalTaps: user.statistics.totalTaps
         },
-        botStatus: details.botInfo
+        botStatus: {
+          ...details.botInfo,
+          miningComplete: !details.botInfo.isMining && 
+            new Date() >= details.botInfo.miningEndTime
+        }
       }
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to claim earnings', error: error.message });
   }
 };
+
 
 const getPendingAutoBotEarnings = async (req, res) => {
   const { userId } = req.params;

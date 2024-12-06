@@ -21,59 +21,33 @@ const calculatePendingPower = (user, now = Date.now()) => {
   const lastClaimed = user.autoTapBot.lastClaimed;
   const config = AUTO_TAP_BOT_CONFIG.levels[user.autoTapBot.level];
   
-  // Get the start of today
+  // Calculate daily mining window based on activation time
+  const activationTime = new Date(user.autoTapBot.validUntil.getTime() - 
+    (config.validityDays * 24 * 60 * 60 * 1000)); // Get original activation time
+  
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
-
-  // Calculate mining window based on bot level
-  let miningEndTime;
-  if (user.autoTapBot.level === 'free') {
-    // Free tier: one-time 2-hour window from activation
-    miningEndTime = new Date(user.autoTapBot.validUntil).getTime() - 
-      (config.validityDays * 24 * 60 * 60 * 1000) + (2 * 60 * 60 * 1000);
-  } else {
-    // Paid tiers: daily hours until midnight
-    miningEndTime = new Date(todayStart.getTime() + (config.duration * 60 * 60 * 1000));
-    if (miningEndTime < now) {
-      // If today's mining window is over, no pending power
-      return {
-        pendingPower: 0,
-        details: {
-          timeElapsed: 0,
-          totalTaps: 0,
-          powerPerTap: user.getTapPower(),
-          energyUsed: 0,
-          botInfo: {
-            level: user.autoTapBot.level,
-            validUntil: user.autoTapBot.validUntil,
-            lastClaimed: lastClaimed,
-            duration: config.duration,
-            isMining: false,
-            nextMiningStart: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000),
-            remainingTime: {
-              minutes: 0,
-              seconds: 0,
-              total: { minutes: 0, seconds: 0 }
-            }
-          }
-        }
-      };
-    }
+  
+  const activationHour = activationTime.getHours();
+  let miningStartTime = new Date(todayStart);
+  miningStartTime.setHours(activationHour, activationTime.getMinutes(), 0, 0);
+  
+  // If current time is before today's mining start, use yesterday's window
+  if (now < miningStartTime.getTime()) {
+    miningStartTime = new Date(miningStartTime.getTime() - (24 * 60 * 60 * 1000));
   }
+  
+  const miningEndTime = new Date(miningStartTime.getTime() + (config.duration * 60 * 60 * 1000));
 
   // Calculate remaining time
   const remainingMillis = Math.max(0, miningEndTime - now);
   const remainingMinutes = Math.floor(remainingMillis / (60 * 1000));
   const remainingSeconds = Math.floor((remainingMillis % (60 * 1000)) / 1000);
 
-  // Calculate mining time
   const effectiveNow = Math.min(now, miningEndTime);
-  const miningStart = Math.max(lastClaimed, user.autoTapBot.level === 'free' ? 
-    user.autoTapBot.validUntil - (config.validityDays * 24 * 60 * 60 * 1000) : 
-    todayStart.getTime());
+  const miningStart = Math.max(lastClaimed, miningStartTime.getTime());
   
   const timeElapsed = Math.max(0, effectiveNow - miningStart);
-
   const tapsPerSecond = user.speedLevel;
   const totalTaps = Math.floor((timeElapsed / 1000) * tapsPerSecond);
   const tapPower = user.getTapPower();
@@ -90,8 +64,9 @@ const calculatePendingPower = (user, now = Date.now()) => {
         validUntil: user.autoTapBot.validUntil,
         lastClaimed: lastClaimed,
         duration: config.duration,
-        isMining: now <= miningEndTime && now >= miningStart,
-        miningEndTime: new Date(miningEndTime),
+        isMining: now <= miningEndTime && now >= miningStartTime,
+        miningStartTime,
+        miningEndTime,
         remainingTime: {
           minutes: remainingMinutes,
           seconds: remainingSeconds,
@@ -99,9 +74,7 @@ const calculatePendingPower = (user, now = Date.now()) => {
             minutes: Math.floor(remainingMillis / (60 * 1000)),
             seconds: Math.floor(remainingMillis / 1000)
           }
-        },
-        dailyHours: config.duration,
-        validityDays: config.validityDays
+        }
       }
     }
   };

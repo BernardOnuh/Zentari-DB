@@ -240,7 +240,7 @@ const handleTap = async (req, res) => {
 
 
 const activateAutoTapBot = async (req, res) => {
-  const { userId, level = 'free', paymentValidated = false } = req.body;
+  const { userId, level = 'free' } = req.body;
 
   try {
     const user = await User.findOne({ userId });
@@ -263,19 +263,22 @@ const activateAutoTapBot = async (req, res) => {
       }
     }
 
-    if (level !== 'free' && !paymentValidated) {
-      return res.status(400).json({ message: 'Payment not validated' });
+    const botConfig = AUTO_TAP_BOT_CONFIG.levels[level];
+    if (!botConfig) {
+      return res.status(400).json({ 
+        message: 'Invalid bot level',
+        availableLevels: Object.keys(AUTO_TAP_BOT_CONFIG.levels)
+      });
     }
 
-    const botConfig = AUTO_TAP_BOT_CONFIG.levels[level];
-    if (!botConfig) return res.status(400).json({ message: 'Invalid bot level' });
-
+    // Check star cost for paid tiers
     if (level !== 'free') {
       if (user.stars < botConfig.starCost) {
         return res.status(400).json({ 
           message: 'Insufficient stars',
           required: botConfig.starCost,
-          current: user.stars
+          current: user.stars,
+          missing: botConfig.starCost - user.stars
         });
       }
       user.stars -= botConfig.starCost;
@@ -291,7 +294,7 @@ const activateAutoTapBot = async (req, res) => {
       }
     }
 
-    // Set up new bot with proper duration tracking
+    // Set up new bot
     user.autoTapBot = {
       level,
       validUntil: new Date(now.getTime() + (botConfig.validityDays * 24 * 60 * 60 * 1000)),
@@ -303,17 +306,35 @@ const activateAutoTapBot = async (req, res) => {
 
     // Calculate actual mining end time
     const miningEndTime = new Date(now.getTime() + (botConfig.duration * 60 * 60 * 1000));
+    const remainingMillis = miningEndTime.getTime() - now.getTime();
 
     res.status(200).json({
       message: 'Auto tap bot activated successfully',
       botStatus: {
-        ...user.autoTapBot.toObject(),
-        config: botConfig,
-        miningDuration: botConfig.duration * 60 * 60 * 1000,
+        level,
+        validUntil: user.autoTapBot.validUntil,
+        lastClaimed: user.autoTapBot.lastClaimed,
+        isActive: true,
         miningEndTime,
-        timeRemaining: botConfig.duration * 60 // in minutes
+        config: {
+          duration: botConfig.duration,
+          starCost: botConfig.starCost,
+          validityDays: botConfig.validityDays
+        },
+        remainingTime: {
+          minutes: Math.floor(remainingMillis / (60 * 1000)),
+          seconds: Math.floor(remainingMillis / 1000),
+          total: {
+            minutes: Math.floor(remainingMillis / (60 * 1000)),
+            seconds: Math.floor(remainingMillis / 1000)
+          }
+        }
       },
-      stars: user.stars
+      userStats: {
+        stars: user.stars,
+        power: user.power,
+        totalTaps: user.statistics.totalTaps
+      }
     });
   } catch (error) {
     res.status(500).json({ message: 'Activation failed', error: error.message });

@@ -20,7 +20,10 @@ const {
   getUserStatistics,
   getUserAchievements,
   getPowerLeaderboard,
+  getEnergyLeaderboard,
   getReferralLeaderboard,
+  getCheckInLeaderboard,
+  getCombinedLeaderboard,
   getEnergyStatus,
   refillEnergy
 } = require('../controller/userController');
@@ -73,7 +76,10 @@ router.get('/achievements/:userId', getUserAchievements);
 
 // Leaderboards
 router.get('/leaderboard/power', getPowerLeaderboard);
-router.get('/leaderboard/referrals', getReferralLeaderboard);
+router.get('/leaderboard/energy', getEnergyLeaderboard);
+router.get('/leaderboard/referral', getReferralLeaderboard);
+router.get('/leaderboard/checkin', getCheckInLeaderboard);
+router.get('/leaderboard/combined', getCombinedLeaderboard);
 
 // ============ TASK ROUTES ============
 

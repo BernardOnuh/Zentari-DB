@@ -917,35 +917,7 @@ const getUserAchievements = async (req, res) => {
   }
 };
 
-// Leaderboards
-const getPowerLeaderboard = async (req, res) => {
-  try {
-    const users = await User.find({}, 'username power')
-      .sort({ power: -1 })
-      .limit(100);
-    
-    res.status(200).json({ leaderboard: users });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
 
-const getReferralLeaderboard = async (req, res) => {
-  try {
-    const users = await User.find({}, 'username directReferrals')
-      .sort({ 'directReferrals.length': -1 })
-      .limit(100);
-    
-    res.status(200).json({
-      leaderboard: users.map(user => ({
-        username: user.username,
-        referrals: user.directReferrals.length
-      }))
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
 
 // Energy Management
 const getEnergyStatus = async (req, res) => {
@@ -1043,6 +1015,222 @@ const monitorUserStatus = async (req, res) => {
 };
 
 
+// Helper function to generate leaderboard response
+const generateLeaderboardResponse = (users, metric, limit = 100) => {
+  return users.slice(0, limit).map((user, index) => ({
+    rank: index + 1,
+    username: user.username,
+    userId: user.userId,
+    value: user[metric],
+    timestamp: new Date()
+  }));
+};
+
+// Get Power Leaderboard
+const getPowerLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username userId power')
+      .sort({ power: -1 })
+      .limit(100)
+      .lean();
+
+    if (!users || users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found',
+        leaderboard: []
+      });
+    }
+
+    const leaderboard = generateLeaderboardResponse(users, 'power');
+
+    res.status(200).json({
+      message: 'Power leaderboard retrieved successfully',
+      leaderboard,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to retrieve power leaderboard',
+      error: error.message
+    });
+  }
+};
+
+// Get Energy Leaderboard
+const getEnergyLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username userId energy maxEnergy')
+      .sort({ energy: -1 })
+      .limit(100)
+      .lean();
+
+    if (!users || users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found',
+        leaderboard: []
+      });
+    }
+
+    const leaderboard = users.slice(0, 100).map((user, index) => ({
+      rank: index + 1,
+      username: user.username,
+      userId: user.userId,
+      currentEnergy: user.energy,
+      maxEnergy: user.maxEnergy,
+      energyPercentage: ((user.energy / user.maxEnergy) * 100).toFixed(2)
+    }));
+
+    res.status(200).json({
+      message: 'Energy leaderboard retrieved successfully',
+      leaderboard,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to retrieve energy leaderboard',
+      error: error.message
+    });
+  }
+};
+
+
+
+// Get Check-in Leaderboard
+const getCheckInLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username userId checkInStreak statistics.totalCheckIns checkInPoints')
+      .sort({ checkInStreak: -1 })
+      .limit(100)
+      .lean();
+
+    if (!users || users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found',
+        leaderboard: []
+      });
+    }
+
+    const leaderboard = users.slice(0, 100).map((user, index) => ({
+      rank: index + 1,
+      username: user.username,
+      userId: user.userId,
+      currentStreak: user.checkInStreak || 0,
+      totalCheckIns: user.statistics?.totalCheckIns || 0,
+      checkInPoints: user.checkInPoints || 0
+    }));
+
+    res.status(200).json({
+      message: 'Check-in leaderboard retrieved successfully',
+      leaderboard,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to retrieve check-in leaderboard',
+      error: error.message
+    });
+  }
+};
+
+// Get Combined Stats Leaderboard
+const getCombinedLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 
+      'username userId power energy maxEnergy directReferrals referralPoints checkInStreak statistics.totalCheckIns checkInPoints')
+      .lean();
+
+    if (!users || users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found',
+        leaderboard: []
+      });
+    }
+
+    // Calculate total score for each user
+    const enhancedUsers = users.map(user => ({
+      ...user,
+      totalScore: (
+        (user.power || 0) + 
+        (user.referralPoints || 0) + 
+        (user.checkInPoints || 0)
+      )
+    }));
+
+    // Sort by total score
+    enhancedUsers.sort((a, b) => b.totalScore - a.totalScore);
+
+    const leaderboard = enhancedUsers.slice(0, 100).map((user, index) => ({
+      rank: index + 1,
+      username: user.username,
+      userId: user.userId,
+      totalScore: user.totalScore,
+      breakdown: {
+        power: user.power || 0,
+        energy: {
+          current: user.energy || 0,
+          max: user.maxEnergy || 0
+        },
+        referrals: {
+          count: user.directReferrals?.length || 0,
+          points: user.referralPoints || 0
+        },
+        checkIns: {
+          streak: user.checkInStreak || 0,
+          total: user.statistics?.totalCheckIns || 0,
+          points: user.checkInPoints || 0
+        }
+      }
+    }));
+
+    res.status(200).json({
+      message: 'Combined leaderboard retrieved successfully',
+      leaderboard,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to retrieve combined leaderboard',
+      error: error.message
+    });
+  }
+};
+
+// Get Referral Leaderboard
+const getReferralLeaderboard = async (req, res) => {
+  try {
+    const users = await User.find({}, 'username userId directReferrals referralPoints')
+      .sort({ 'directReferrals.length': -1 })
+      .limit(100)
+      .lean();
+
+    if (!users || users.length === 0) {
+      return res.status(200).json({
+        message: 'No users found',
+        leaderboard: []
+      });
+    }
+
+    const leaderboard = users.slice(0, 100).map((user, index) => ({
+      rank: index + 1,
+      username: user.username,
+      userId: user.userId,
+      referralCount: user.directReferrals?.length || 0,
+      referralPoints: user.referralPoints || 0
+    }));
+
+    res.status(200).json({
+      message: 'Referral leaderboard retrieved successfully',
+      leaderboard,
+      totalUsers: users.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to retrieve referral leaderboard',
+      error: error.message
+    });
+  }
+};
+
 // Export all controller functions
 module.exports = {
   registerUser,
@@ -1062,7 +1250,11 @@ module.exports = {
   getUserStatistics,
   getUserAchievements,
   getPowerLeaderboard,
+  getEnergyLeaderboard,
   getReferralLeaderboard,
+  getReferralLeaderboard,
+  getCheckInLeaderboard,
+  getCombinedLeaderboard,
   getEnergyStatus,
   refillEnergy
 };
